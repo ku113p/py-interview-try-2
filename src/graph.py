@@ -21,10 +21,10 @@ from src.graphs.deps import Deps, build_default_deps
 class State(TypedDict):
     user: user.User
     message: message.ClientMessage
-    messages: Annotated[list[BaseMessage], add_messages]
-    loop_step: int
-    extract_data_dir: str
-    was_covered: bool
+    messages: NotRequired[Annotated[list[BaseMessage], add_messages]]
+    loop_step: NotRequired[int]
+    extract_data_dir: NotRequired[str]
+    was_covered: NotRequired[bool]
     text: NotRequired[str]
     target: NotRequired[Target]
     area_id: NotRequired[uuid.UUID]
@@ -57,19 +57,23 @@ def init_state(state: State):
 
 def missing_state_defaults(state: State):
     updates = {}
-    if "messages" not in state:
+    if is_missing(state, "messages"):
         updates["messages"] = []
-    if "media_file" not in state:
+    if is_missing(state, "media_file"):
         updates["media_file"] = build_temp_file()
-    if "audio_file" not in state:
+    if is_missing(state, "audio_file"):
         updates["audio_file"] = build_temp_file()
-    if "loop_step" not in state:
+    if is_missing(state, "loop_step"):
         updates["loop_step"] = 0
-    if "was_covered" not in state:
+    if is_missing(state, "was_covered"):
         updates["was_covered"] = False
-    if "extract_data_dir" not in state:
+    if is_missing(state, "extract_data_dir"):
         updates["extract_data_dir"] = DEFAULT_SIGNAL_DIR
     return updates
+
+
+def is_missing(state: State, key: str) -> bool:
+    return key not in state or state[key] is None
 
 
 def build_temp_file() -> tempfile._TemporaryFileWrapper:
