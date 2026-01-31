@@ -12,8 +12,8 @@ Build
 - No build system is configured.
 
 Run
-- Run the sample entry point:
-  - `python main.py`
+- Run the sample entry point via uv:
+  - `uv run python main.py`
 
 Lint
 - No linting tool is configured (no ruff/flake8/black/isort config found).
@@ -21,6 +21,8 @@ Lint
 Test
 - No test framework or test commands are configured.
 - There are no test files in the repository.
+- When running python-based tests, use uv:
+  - `uv run python -m pytest`
 
 Single-test guidance
 - Not applicable: no test framework or per-test runner is set up.
@@ -104,3 +106,5 @@ Notes for agents
 - Do not invent lint/test commands; none are configured.
 - Keep edits minimal and consistent with existing patterns.
 - Prefer adding type hints if changing or adding functions.
+- Start work by updating or adding tests before code changes when possible.
+- Use `uv run` for any python invocations (scripts, pytest, tooling).

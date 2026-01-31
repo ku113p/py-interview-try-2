@@ -13,13 +13,13 @@ def parse_uuid(value: str) -> uuid.UUID:
 
 
 class LifeAreaMethods:
-    @tool
+    @tool(description="List life areas for user")
     @staticmethod
     def list(user_id: str) -> list[db.LifeAreaObject]:
         u_id = parse_uuid(user_id)
         return [obj for obj in db.LifeArea.list() if obj.user_id == u_id]
 
-    @tool
+    @tool(description="Fetch life area by id")
     @staticmethod
     def get(user_id: str, area_id: str) -> db.LifeAreaObject:
         u_id = parse_uuid(user_id)
@@ -31,7 +31,7 @@ class LifeAreaMethods:
             raise KeyError(f"LifeArea {area_id} does not belong to user {user_id}")
         return area
 
-    @tool
+    @tool(description="Create a new life area")
     @staticmethod
     def create(
         user_id: str, title: str, parent_id: str | None = None
@@ -48,7 +48,7 @@ class LifeAreaMethods:
         db.LifeArea.create(area_id, area)
         return area
 
-    @tool
+    @tool(description="Delete a life area")
     @staticmethod
     def delete(user_id: str, area_id: str) -> None:
         u_id = parse_uuid(user_id)
@@ -62,13 +62,13 @@ class LifeAreaMethods:
 
 
 class CriteriaMethods:
-    @tool
+    @tool(description="List criteria for a life area")
     @staticmethod
     def list(user_id: str, area_id: str) -> list[db.CriteriaObject]:
         area = LifeAreaMethods.get.invoke({"user_id": user_id, "area_id": area_id})
         return [obj for obj in db.Criteria.list() if obj.area_id == area.id]
 
-    @tool
+    @tool(description="Delete a criteria entry")
     @staticmethod
     def delete(user_id: str, criteria_id: str) -> None:
         u_id = parse_uuid(user_id)
@@ -83,7 +83,7 @@ class CriteriaMethods:
             raise KeyError
         db.Criteria.delete(c_id)
 
-    @tool
+    @tool(description="Create a criteria entry")
     @staticmethod
     def create(user_id: str, area_id: str, title: str) -> db.CriteriaObject:
         area = LifeAreaMethods.get.invoke({"user_id": user_id, "area_id": area_id})

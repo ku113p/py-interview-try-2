@@ -1,43 +1,48 @@
 import base64
-import os
-from tempfile import _TemporaryFileWrapper
-from typing_extensions import TypedDict
-from langchain_openai import ChatOpenAI
+import tempfile
+from typing_extensions import NotRequired, TypedDict
 from langchain_core.messages import HumanMessage
+
+from src.domain import message as domain_message
+from src.graphs.deps import Deps
 
 
 class State(TypedDict):
-    audio_file: _TemporaryFileWrapper[bytes]
-    text: str | None
+    message: domain_message.ClientMessage
+    audio_file: NotRequired[tempfile._TemporaryFileWrapper]
+    text: NotRequired[str]
 
 
-async def extract_text(state: State):
-    audio_file = state["audio_file"]
-    text = await extract_text_from_audio(audio_file)
-    return {"text": text}
+def build_text_extractor(deps: Deps):
+    async def extract_text(state: State):
+        c_msg = state["message"]
+        if isinstance(c_msg.data, str):
+            return {"text": c_msg.data}
+
+        audio_file = state.get("audio_file")
+        if audio_file is None:
+            raise ValueError("Missing audio file for transcription")
+
+        text = await extract_text_from_audio(audio_file, deps)
+        return {"text": text}
+
+    return extract_text
 
 
-async def extract_text_from_audio(audio_file: _TemporaryFileWrapper[bytes]) -> str:
+async def extract_text_from_audio(
+    audio_file: tempfile._TemporaryFileWrapper, deps: Deps
+) -> str:
     b64_audio = encode_audio(audio_file)
-    llm = build_llm()
+    llm = deps["build_llm"](temperature=0)
     message = build_prompt(b64_audio)
     response = await llm.ainvoke([message])
     return parse_transcription(response.content)
 
 
-def encode_audio(audio_file: _TemporaryFileWrapper[bytes]) -> str:
+def encode_audio(audio_file: tempfile._TemporaryFileWrapper) -> str:
     audio_file.seek(0)
     audio_data = audio_file.read()
     return base64.b64encode(audio_data).decode("utf-8")
-
-
-def build_llm():
-    return ChatOpenAI(
-        model="google/gemini-2.0-flash-001",
-        api_key=get_api_key,
-        base_url="https://openrouter.ai/api/v1",
-        temperature=0,
-    )
 
 
 def build_prompt(b64_audio: str):
@@ -56,10 +61,3 @@ def parse_transcription(content: object) -> str:
     if not isinstance(content, str):
         raise ValueError("Transcription failed")
     return content
-
-
-def get_api_key() -> str:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if api_key is None:
-        raise ValueError("OPENROUTER_API_KEY is required")
-    return api_key

@@ -1,3 +1,5 @@
+import tempfile
+import uuid
 from typing import Annotated, Literal
 from typing_extensions import NotRequired, TypedDict
 
@@ -7,9 +9,10 @@ from langgraph.graph.message import add_messages
 
 from src.domain import message, user
 from src.graphs.router.graph import Target
-from .audio_extractor import extract_audio
-from .target_extractor import extract_target
-from .text_extractor import extract_text
+from .audio_extractor import build_audio_extractor
+from .target_extractor import build_target_extractor
+from .text_extractor import build_text_extractor
+from src.graphs.deps import Deps
 
 
 class State(TypedDict):
@@ -18,6 +21,12 @@ class State(TypedDict):
     text: NotRequired[str]
     target: NotRequired[Target]
     messages: Annotated[list[BaseMessage], add_messages]
+    loop_step: NotRequired[int]
+    extract_data_dir: NotRequired[str]
+    was_covered: NotRequired[bool]
+    area_id: NotRequired[uuid.UUID]
+    media_file: NotRequired[tempfile._TemporaryFileWrapper]
+    audio_file: NotRequired[tempfile._TemporaryFileWrapper]
 
 
 def route_message(state: State) -> Literal["extract_audio", "extract_text"]:
@@ -27,12 +36,12 @@ def route_message(state: State) -> Literal["extract_audio", "extract_text"]:
     return "extract_audio"
 
 
-def get_subgraph():
+def get_subgraph(deps: Deps):
     builder = StateGraph(State)
 
-    builder.add_node("extract_audio", extract_audio)
-    builder.add_node("extract_text", extract_text)
-    builder.add_node("extract_target", extract_target)
+    builder.add_node("extract_audio", build_audio_extractor())
+    builder.add_node("extract_text", build_text_extractor(deps))
+    builder.add_node("extract_target", build_target_extractor(deps))
 
     builder.add_conditional_edges(
         START, route_message, ["extract_audio", "extract_text"]

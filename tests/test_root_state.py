@@ -1,11 +1,15 @@
 import asyncio
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 import uuid
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from src import graph
 from src.domain import message, user
+from src.graphs.router.graph import Target
+from src.graphs.deps import Deps
 
 
 def test_root_init_seeds_defaults():
@@ -27,30 +31,67 @@ def test_root_init_seeds_defaults():
 
 
 def test_root_graph_runs_text_message():
-    state = cast(
-        graph.State,
-        {
-            "user": user.User(id=uuid.uuid7(), mode=user.InputMode.auto),
-            "message": message.ClientMessage(data="hello"),
-        },
-    )
-    graph_obj = graph.get_graph()
-    result = graph_obj.invoke(state)
+    deps, build_log = build_stub_deps()
+    state = build_base_state(user.InputMode.auto)
+    root_graph = graph.get_graph(deps)
+    result = asyncio.run(root_graph.ainvoke(state))
     assert result["text"] == "hello"
     assert result["target"] is not None
     assert isinstance(result["messages"], list)
+    assert build_log["count"] > 0
 
 
 def test_message_flow_accumulates_messages():
-    state = cast(
-        graph.State,
-        {
-            "user": user.User(id=uuid.uuid7(), mode=user.InputMode.interview),
-            "message": message.ClientMessage(data="hi"),
-        },
-    )
-    graph_obj = graph.get_graph()
-    result = graph_obj.invoke(state)
+    deps, _ = build_stub_deps()
+    state = build_base_state(user.InputMode.interview)
+    root_graph = graph.get_graph(deps)
+    result = asyncio.run(root_graph.ainvoke(state))
     messages = result["messages"]
     assert isinstance(messages, list)
     assert all(isinstance(msg, BaseMessage) for msg in messages)
+    assert any(isinstance(msg, AIMessage) for msg in messages)
+
+
+def build_base_state(mode: user.InputMode):
+    base_state = {
+        "user": user.User(id=uuid.uuid7(), mode=mode),
+        "message": message.ClientMessage(data="hello"),
+        "area_id": uuid.uuid7(),
+    }
+    init_updates = graph.init_state(cast(graph.State, base_state))
+    merged = base_state | init_updates
+    return cast(graph.State, merged)
+
+
+def build_stub_deps() -> tuple[Deps, dict[str, int]]:
+    call_log = {"count": 0}
+
+    class StubLLM:
+        async def ainvoke(self, messages):
+            first = messages[0]
+            if isinstance(first, dict):
+                payload = {"final_answer": "thanks", "all_covered": False}
+                return SimpleNamespace(content=json.dumps(payload))
+            return SimpleNamespace(content="hello")
+
+        def bind_tools(self, tools):
+            def invoke(_):
+                return [AIMessage(content="ok", tool_calls=[])]
+
+            return SimpleNamespace(invoke=invoke)
+
+        def with_structured_output(self, model_cls):
+            async def ainvoke(_):
+                return model_cls(target=Target.areas)
+
+            return SimpleNamespace(ainvoke=ainvoke)
+
+    def build_llm(temperature: float | None = None):
+        call_log["count"] += 1
+        return StubLLM()
+
+    def get_area_tools():
+        return []
+
+    deps = cast(Deps, {"build_llm": build_llm, "get_area_tools": get_area_tools})
+    return deps, call_log

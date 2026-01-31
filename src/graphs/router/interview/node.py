@@ -1,29 +1,13 @@
-import asyncio
 import json
-import os
 from pathlib import Path
 from typing import Annotated, TypedDict
 import uuid
 
 from langchain_core.messages import AIMessage, BaseMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 
 from src import db
-
-
-def get_api_key() -> str:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if api_key is None:
-        raise ValueError("OPENROUTER_API_KEY is required")
-    return api_key
-
-
-model = ChatOpenAI(
-    model="google/gemini-2.0-flash-001",
-    api_key=get_api_key,
-    base_url="https://openrouter.ai/api/v1",
-)
+from src.graphs.deps import Deps
 
 PROMPT_LINES = [
     "You are an interview agent.",
@@ -56,9 +40,21 @@ class State(TypedDict):
     was_covered: bool
 
 
-async def interview(state: State):
-    area_id = state["area_id"]
-    last_content = get_last_content(state["messages"][-1])
+def build_interview_node(deps: Deps):
+    async def interview(state: State):
+        area_id = state["area_id"]
+        persist_latest_message(state["messages"], area_id)
+        ai_answer, was_covered = await score_area(area_id, deps)
+        if was_covered:
+            write_area_signal(state["extract_data_dir"], area_id)
+
+        return {"messages": [AIMessage(content=ai_answer)], "was_covered": was_covered}
+
+    return interview
+
+
+def persist_latest_message(messages: list[BaseMessage], area_id: uuid.UUID) -> None:
+    last_content = get_last_content(messages[-1])
     last_area_msg = db.LifeAreaMessageObject(
         id=uuid.uuid7(),
         data=last_content,
@@ -67,16 +63,11 @@ async def interview(state: State):
     )
     db.LifeAreaMessages.create(last_area_msg.id, last_area_msg)
 
-    area_msgs: list[str] = [
-        msg.data for msg in db.LifeAreaMessages.list_by_area(area_id)
-    ]
-    area_criteria: list[str] = [c.title for c in db.Criteria.list_by_area(area_id)]
 
-    ai_answer, was_covered = await check_criteria_covered(area_msgs, area_criteria)
-    if was_covered:
-        write_area_signal(state["extract_data_dir"], area_id)
-
-    return {"messages": [AIMessage(content=ai_answer)], "was_covered": was_covered}
+async def score_area(area_id: uuid.UUID, deps: Deps):
+    area_msgs = [msg.data for msg in db.LifeAreaMessages.list_by_area(area_id)]
+    area_criteria = [c.title for c in db.Criteria.list_by_area(area_id)]
+    return await check_criteria_covered(area_msgs, area_criteria, deps)
 
 
 def get_last_content(message: BaseMessage) -> str:
@@ -89,9 +80,10 @@ def get_last_content(message: BaseMessage) -> str:
 async def check_criteria_covered(
     interview_messages: list[str],
     area_criteria: list[str],
+    deps: Deps,
 ) -> tuple[str, bool]:
     messages = build_messages(interview_messages, area_criteria)
-    response = await model.ainvoke(messages)
+    response = await deps["build_llm"](temperature=0).ainvoke(messages)
     return extract_cover_result(response.content)
 
 

@@ -1,33 +1,36 @@
 import asyncio
 import io
-from tempfile import _TemporaryFileWrapper
+import tempfile
 from typing_extensions import TypedDict
 from src.domain import message
 
 
 class State(TypedDict):
     message: message.ClientMessage
-    media_file: _TemporaryFileWrapper[bytes]
-    audio_file: _TemporaryFileWrapper[bytes]
+    media_file: tempfile._TemporaryFileWrapper
+    audio_file: tempfile._TemporaryFileWrapper
 
 
-async def extract_audio(state: State):
-    c_msg = state["message"]
-    m_file = state["media_file"]
+def build_audio_extractor():
+    async def extract_audio(state: State):
+        c_msg = state["message"]
+        m_file = state["media_file"]
 
-    if isinstance(c_msg.data, str):
-        raise ValueError("Expected media message")
+        if isinstance(c_msg.data, str):
+            raise ValueError("Expected media message")
 
-    await write_file(m_file, c_msg.data.content)
+        await write_file(m_file, c_msg.data.content)
 
-    if c_msg.data.type == message.MessageType.audio:
-        return {"audio_file": m_file}
+        if c_msg.data.type == message.MessageType.audio:
+            return {"audio_file": m_file}
 
-    await extract_audio_from_video(m_file, state["audio_file"])
-    return {"audio_file": state["audio_file"]}
+        await extract_audio_from_video(m_file, state["audio_file"])
+        return {"audio_file": state["audio_file"]}
+
+    return extract_audio
 
 
-async def write_file(tmp_file: _TemporaryFileWrapper[bytes], stream: io.BytesIO):
+async def write_file(tmp_file: tempfile._TemporaryFileWrapper, stream: io.BytesIO):
     tmp_file.seek(0)
     tmp_file.write(stream.read())
     tmp_file.seek(0)
@@ -35,8 +38,8 @@ async def write_file(tmp_file: _TemporaryFileWrapper[bytes], stream: io.BytesIO)
 
 
 async def extract_audio_from_video(
-    media_tmp_file: _TemporaryFileWrapper[bytes],
-    audio_tmp_file: _TemporaryFileWrapper[bytes],
+    media_tmp_file: tempfile._TemporaryFileWrapper,
+    audio_tmp_file: tempfile._TemporaryFileWrapper,
 ):
     media_tmp_file.flush()
 

@@ -1,13 +1,12 @@
-import os
 from typing import cast
 from typing_extensions import NotRequired, TypedDict
 from pydantic import BaseModel, Field
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from src import db
 from src.domain import user
 from src.graphs.router.graph import Target
+from src.graphs.deps import Deps
 
 
 class State(TypedDict):
@@ -17,14 +16,17 @@ class State(TypedDict):
     target: NotRequired[Target]
 
 
-async def extract_target(state: State):
-    user_obj = state["user"]
-    text = state["text"]
-    prev_messages, use_history = resolve_messages(state, user_obj)
-    new_message = HumanMessage(content=text)
-    full_context = prev_messages + [new_message]
-    target = await get_target(user_obj, full_context)
-    return build_updates(use_history, full_context, new_message, target)
+def build_target_extractor(deps: Deps):
+    async def extract_target(state: State):
+        user_obj = state["user"]
+        text = state["text"]
+        prev_messages, use_history = resolve_messages(state, user_obj)
+        new_message = HumanMessage(content=text)
+        full_context = prev_messages + [new_message]
+        target = await get_target(user_obj, full_context, deps)
+        return build_updates(use_history, full_context, new_message, target)
+
+    return extract_target
 
 
 def resolve_messages(state: State, user_obj: user.User):
@@ -34,10 +36,10 @@ def resolve_messages(state: State, user_obj: user.User):
     return existing_messages, False
 
 
-async def get_target(user_obj: user.User, messages: list[BaseMessage]):
+async def get_target(user_obj: user.User, messages: list[BaseMessage], deps: Deps):
     if user_obj.mode != user.InputMode.auto:
         return Target.from_user_mode(user_obj.mode)
-    return await extract_target_from_messages(messages)
+    return await extract_target_from_messages(messages, deps)
 
 
 def build_updates(
@@ -69,29 +71,19 @@ def get_formatted_history(user_obj: user.User, limit: int = 10) -> list[BaseMess
     return formatted_messages
 
 
-async def extract_target_from_messages(messages: list[BaseMessage]) -> Target:
-    structured_llm = build_structured_llm()
+async def extract_target_from_messages(
+    messages: list[BaseMessage], deps: Deps
+) -> Target:
+    structured_llm = build_structured_llm(deps)
     system_prompt = build_system_prompt()
     result = await structured_llm.ainvoke([system_prompt] + messages)
     parsed = cast(IntentClassification, result)
     return parsed.target
 
 
-def build_structured_llm():
-    llm = ChatOpenAI(
-        model="google/gemini-2.0-flash-001",
-        api_key=get_api_key,
-        base_url="https://openrouter.ai/api/v1",
-        temperature=0,
-    )
+def build_structured_llm(deps: Deps):
+    llm = deps["build_llm"](temperature=0)
     return llm.with_structured_output(IntentClassification)
-
-
-def get_api_key() -> str:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if api_key is None:
-        raise ValueError("OPENROUTER_API_KEY is required")
-    return api_key
 
 
 def build_system_prompt():
