@@ -11,12 +11,6 @@ from langgraph.graph.message import add_messages
 from src import db
 
 
-model = ChatOpenAI(
-    model="google/gemini-2.0-flash-001",
-    base_url="https://openrouter.ai/api/v1",
-)
-
-
 class State(TypedDict):
     area_id: uuid.UUID
     extract_data_tasks: asyncio.Queue[uuid.UUID]
@@ -24,7 +18,7 @@ class State(TypedDict):
     was_covered: bool
 
 
-async def interview(state: State):
+async def interview(state: State, llm: ChatOpenAI):
     area_id = state["area_id"]
     message_content = state["messages"][-1].content
     if isinstance(message_content, list):
@@ -45,7 +39,7 @@ async def interview(state: State):
     ]
     area_criteria: list[str] = [c.title for c in db.Criteria.list_by_area(area_id)]
 
-    ai_answer, was_covered = await check_criteria_covered(area_msgs, area_criteria)
+    ai_answer, was_covered = await check_criteria_covered(area_msgs, area_criteria, llm)
     if was_covered:
         await state["extract_data_tasks"].put(area_id)
 
@@ -55,6 +49,7 @@ async def interview(state: State):
 async def check_criteria_covered(
     interview_messages: list[str],
     area_criteria: list[str],
+    llm: ChatOpenAI,
 ) -> tuple[str, bool]:
     system_prompt = (
         "You are an interview agent.\n"
@@ -82,7 +77,7 @@ async def check_criteria_covered(
         "criteria": area_criteria,
     }
 
-    response = await model.ainvoke(
+    response = await llm.ainvoke(
         [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_prompt)},

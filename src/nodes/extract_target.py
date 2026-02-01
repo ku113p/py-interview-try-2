@@ -24,7 +24,7 @@ class State(TypedDict):
     target: Target | None
 
 
-async def extract_target(state: State):
+async def extract_target(state: State, llm: ChatOpenAI):
     user_obj = state["user"]
     text = state["text"]
 
@@ -36,7 +36,7 @@ async def extract_target(state: State):
     elif user_obj.current_life_area_id is not None:
         target = Target.interview
     else:
-        target = await extract_target_from_messages(full_context)
+        target = await extract_target_from_messages(full_context, llm)
 
     return {"last_messages": full_context, "target": target}
 
@@ -60,13 +60,7 @@ def get_formatted_history(user_obj: user.User, limit: int = 10) -> list[BaseMess
     return formatted_messages
 
 
-async def extract_target_from_messages(messages: list[BaseMessage]) -> Target:
-    llm = ChatOpenAI(
-        model="google/gemini-2.0-flash-001",
-        base_url="https://openrouter.ai/api/v1",
-        temperature=0,
-    )
-
+async def extract_target_from_messages(messages: list[BaseMessage], llm: ChatOpenAI) -> Target:
     structured_llm = llm.with_structured_output(IntentClassification)
 
     system_prompt = SystemMessage(

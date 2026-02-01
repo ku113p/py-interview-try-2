@@ -5,16 +5,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 
-async def extract_text_from_audio(audio_file: BinaryIO) -> str:
+async def extract_text_from_audio(audio_file: BinaryIO, llm: ChatOpenAI) -> str:
     audio_file.seek(0)
     audio_data = audio_file.read()
     b64_audio = base64.b64encode(audio_data).decode("utf-8")
-
-    llm = ChatOpenAI(
-        model="google/gemini-2.0-flash-001",
-        base_url="https://openrouter.ai/api/v1",
-        temperature=0,
-    )
 
     message = HumanMessage(
         content=[
@@ -34,7 +28,7 @@ async def extract_text_from_audio(audio_file: BinaryIO) -> str:
     return str(response.content)
 
 
-async def extract_text_from_message(message_data: str | BinaryIO) -> str:
+async def extract_text_from_message(message_data: str | BinaryIO, llm: ChatOpenAI) -> str:
     if isinstance(message_data, str):
         return message_data
-    return await extract_text_from_audio(message_data)
+    return await extract_text_from_audio(message_data, llm)
