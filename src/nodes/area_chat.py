@@ -13,6 +13,7 @@ class State(BaseModel):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-def area_chat(state: State, llm: ChatOpenAI):
+async def area_chat(state: State, llm: ChatOpenAI):
     llm.bind_tools(AREA_TOOLS)
-    return {"messages": llm.invoke(state["messages"])}
+    message = await llm.ainvoke(state.messages)
+    return {"messages": [message]}

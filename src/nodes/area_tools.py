@@ -1,19 +1,17 @@
-from typing_extensions import TypedDict
-
-from typing_extensions import TypedDict
+from pydantic import BaseModel
 
 from langchain_core.messages import AIMessage, ToolMessage
 
 from src.routers.area_router import call_tool
 
 
-class State(TypedDict):
+class State(BaseModel):
     loop_step: int
     messages: list
 
 
-def area_tools(state: State):
-    last_message: AIMessage = state["messages"][-1]
+async def area_tools(state: State):
+    last_message: AIMessage = state.messages[-1]
 
     tools_messages = []
     for tool_call in last_message.tool_calls:
@@ -25,4 +23,4 @@ def area_tools(state: State):
         )
         tools_messages.append(t_msg)
 
-    return {"messages": tools_messages, "loop_step": state["loop_step"] + 1}
+    return {"messages": tools_messages, "loop_step": state.loop_step + 1}

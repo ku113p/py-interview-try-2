@@ -1,28 +1,28 @@
 import asyncio
-import asyncio
 import io
 from typing import BinaryIO
-from typing_extensions import TypedDict
+
+from pydantic import BaseModel
 
 from src.domain import message
 
 
-class State(TypedDict):
+class State(BaseModel):
     message: message.MediaMessage
     media_file: BinaryIO
     audio_file: BinaryIO
 
 
 async def extract_audio(state: State):
-    c_msg = state["message"]
-    m_file = state["media_file"]
+    c_msg = state.message
+    m_file = state.media_file
 
     await write_file(m_file, c_msg.content)
 
     if c_msg.type == message.MessageType.audio:
         return {"audio_file": m_file}
 
-    audio_file = state["audio_file"]
+    audio_file = state.audio_file
     await extract_audio_from_video(m_file, audio_file)
 
     return {"audio_file": audio_file}

@@ -1,15 +1,13 @@
-from typing_extensions import TypedDict
-
-from typing_extensions import TypedDict
+from pydantic import BaseModel
 
 from langchain_core.messages import AIMessage
 
 
-class State(TypedDict):
+class State(BaseModel):
     messages: list
 
 
-def area_threshold(*args, **kwargs):
+async def area_threshold(*args, **kwargs):
     content = "Can you say this differently? (answer generation error)"
     ai_msg = AIMessage(content=content)
     return {"messages": [ai_msg]}
