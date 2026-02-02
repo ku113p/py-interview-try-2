@@ -1,6 +1,5 @@
 from dataclasses import dataclass
-from dataclasses import dataclass
-from typing_extensions import TypedDict
+
 from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
@@ -17,7 +16,7 @@ class Result:
     target: Target
 
 
-class State(TypedDict):
+class State(BaseModel):
     user: user.User
     text: str
     last_messages: list[BaseMessage] | None
@@ -25,8 +24,8 @@ class State(TypedDict):
 
 
 async def extract_target(state: State, llm: ChatOpenAI):
-    user_obj = state["user"]
-    text = state["text"]
+    user_obj = state.user
+    text = state.text
 
     prev_messages = get_formatted_history(user_obj)
     full_context = prev_messages + [HumanMessage(content=text)]
@@ -60,7 +59,9 @@ def get_formatted_history(user_obj: user.User, limit: int = 10) -> list[BaseMess
     return formatted_messages
 
 
-async def extract_target_from_messages(messages: list[BaseMessage], llm: ChatOpenAI) -> Target:
+async def extract_target_from_messages(
+    messages: list[BaseMessage], llm: ChatOpenAI
+) -> Target:
     structured_llm = llm.with_structured_output(IntentClassification)
 
     system_prompt = SystemMessage(

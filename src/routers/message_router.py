@@ -1,6 +1,7 @@
 import enum
 from typing import Literal
-from typing_extensions import TypedDict
+
+from pydantic import BaseModel
 
 from src.domain import user
 
@@ -20,12 +21,12 @@ class Target(enum.Enum):
                 raise NotImplementedError()
 
 
-class State(TypedDict):
+class State(BaseModel):
     target: Target
 
 
 def route_message(state: State) -> Literal["area_chat", "interview"]:
-    target = state["target"]
+    target = state.target
     if target == Target.interview:
         return "interview"
     if target == Target.areas:

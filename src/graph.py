@@ -1,10 +1,10 @@
 import asyncio
-import asyncio
-from functools import partial
 import uuid
+from functools import partial
 from typing import BinaryIO
+
 from langchain_openai import ChatOpenAI
-from typing_extensions import TypedDict
+from pydantic import BaseModel
 
 from langgraph.graph import START, END, StateGraph
 
@@ -25,7 +25,7 @@ from src.routers.message_router import route_message, Target
 MODEL_NAME_FLASH = "google/gemini-2.0-flash-001"
 
 
-class State(TypedDict):
+class State(BaseModel):
     user: user.User
     message: message.ClientMessage
     media_file: BinaryIO
@@ -41,15 +41,15 @@ class State(TypedDict):
 
 
 async def extract_text(state: State, llm: ChatOpenAI):
-    c_msg = state["message"]
+    c_msg = state.message
     if isinstance(c_msg.data, str):
         return {"text": c_msg.data}
 
     audio_state = await extract_audio(
         {
             "message": c_msg.data,
-            "media_file": state["media_file"],
-            "audio_file": state["audio_file"],
+            "media_file": state.media_file,
+            "audio_file": state.audio_file,
         }
     )
     text = await extract_text_from_message(audio_state["audio_file"], llm)
@@ -59,8 +59,12 @@ async def extract_text(state: State, llm: ChatOpenAI):
 def get_graph():
     builder = StateGraph(State)
 
-    builder.add_node("extract_text", partial(extract_text, NewAI(MODEL_NAME_FLASH, 0).build()))
-    builder.add_node("extract_target", partial(extract_target, NewAI(MODEL_NAME_FLASH, 0).build()))
+    builder.add_node(
+        "extract_text", partial(extract_text, NewAI(MODEL_NAME_FLASH, 0).build())
+    )
+    builder.add_node(
+        "extract_target", partial(extract_target, NewAI(MODEL_NAME_FLASH, 0).build())
+    )
     builder.add_node("interview", partial(interview, NewAI(MODEL_NAME_FLASH).build()))
     builder.add_node("area_chat", partial(area_chat, NewAI(MODEL_NAME_FLASH).build()))
     builder.add_node("area_tools", area_tools)

@@ -1,7 +1,7 @@
-from typing_extensions import TypedDict
+from pydantic import BaseModel
 
 
-class State(TypedDict):
+class State(BaseModel):
     messages: list
 
 
