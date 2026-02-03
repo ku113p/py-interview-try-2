@@ -18,11 +18,15 @@ class ExtractState(BaseModel):
     text: str
 
 
-async def run_extract_audio(state: ExtractState):
+def route_extract(state: ExtractState) -> str:
     c_msg = state.message
     if isinstance(c_msg.data, str):
-        return {}
+        return "extract_text"
+    return "extract_audio"
 
+
+async def run_extract_audio(state: ExtractState):
+    c_msg = state.message
     await extract_audio(
         ExtractAudioState(
             message=c_msg.data,
@@ -46,7 +50,9 @@ def build_extract_graph(llm: ChatOpenAI):
     builder = StateGraph(ExtractState)
     builder.add_node("extract_audio", run_extract_audio)
     builder.add_node("extract_text", partial(extract_text, llm=llm))
-    builder.add_edge(START, "extract_audio")
+    builder.add_conditional_edges(
+        START, route_extract, ["extract_text", "extract_audio"]
+    )
     builder.add_edge("extract_audio", "extract_text")
     builder.add_edge("extract_text", END)
     return builder.compile()
