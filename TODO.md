@@ -7,4 +7,4 @@
 - [x] Normalize or consolidate State models to avoid divergence (src/graph.py, src/routers/message_router.py)
 - [x] Replace placeholder timestamps with real values (src/nodes/interview.py)
 - [x] Clean up minor inconsistencies (duplicate imports, unused types) (src/routers/area_router.py)
-- [ ] Wire a minimal runnable entrypoint or note it’s a stub (main.py)
+- [x] Wire a minimal runnable entrypoint or note it’s a stub (main.py)

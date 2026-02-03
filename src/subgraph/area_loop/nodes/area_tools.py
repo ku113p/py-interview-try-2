@@ -1,7 +1,6 @@
-from typing import Annotated, cast
+from typing import Annotated
 
 from langchain_core.messages import BaseMessage, ToolMessage
-from langchain_core.messages.tool import ToolCall
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
@@ -16,7 +15,7 @@ async def area_tools(state: State):
     last_message = state.messages[-1]
 
     tools_messages = []
-    tool_calls = cast(list[ToolCall], getattr(last_message, "tool_calls", None) or [])
+    tool_calls = last_message.tool_calls or []
     for tool_call in tool_calls:
         try:
             tool_result = await call_tool(tool_call)
