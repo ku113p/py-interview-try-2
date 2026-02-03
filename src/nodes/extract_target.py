@@ -8,7 +8,7 @@ from langgraph.graph.message import add_messages
 
 from src import db
 from src.domain import user
-from src.routers.message_router import Target
+from src.state import Target
 
 
 class State(BaseModel):
