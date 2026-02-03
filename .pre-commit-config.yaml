@@ -2,6 +2,10 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
+      - id: ruff-format
+      - id: ruff
+        name: ruff-check
+        args: ["check"]
       - id: ruff
         name: ruff-imports
         args: ["check", "--select", "I", "--fix"]

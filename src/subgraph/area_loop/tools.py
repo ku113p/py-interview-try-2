@@ -94,18 +94,14 @@ class CriteriaMethods:
     def delete(user_id: str, criteria_id: str) -> None:
         u_id = _str_to_uuid(user_id)
         c_id = _str_to_uuid(criteria_id)
-
         if u_id is None or c_id is None:
             raise KeyError
-
         criteria = db.Criteria.get_by_id(c_id)
         if criteria is None:
             raise KeyError
         area = LifeAreaMethods.get(user_id, str(criteria.area_id))
-
         if area.user_id != u_id:
             raise KeyError
-
         db.Criteria.delete(c_id)
 
     @staticmethod

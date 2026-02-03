@@ -25,6 +25,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["F", "I"]
+extend-select = ["PLR"]
+
+[tool.ruff.lint.pylint]
+max-statements = 15
+
 
 [tool.vulture]
 min_confidence = 80

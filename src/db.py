@@ -40,13 +40,13 @@ class BaseModel(Generic[T]):
 class UserFilterMixin(Generic[T]):
     @classmethod
     def list_by_user(cls, user_id: uuid.UUID) -> list[T]:
-        return [obj for obj in cls.list() if getattr(obj, "user_id") == user_id]
+        return [obj for obj in cls.list() if obj.user_id == user_id]
 
 
 class AreaFilterMixin(Generic[T]):
     @classmethod
     def list_by_area(cls, area_id: uuid.UUID) -> list[T]:
-        return [obj for obj in cls.list() if getattr(obj, "area_id") == area_id]
+        return [obj for obj in cls.list() if obj.area_id == area_id]
 
 
 @dataclass
