@@ -40,18 +40,19 @@ async def interview(state: State, llm: ChatOpenAI):
     elif not isinstance(message_content, str):
         message_content = str(message_content)
 
-    last_area_msg = db.LifeAreaMessageObject(
+    last_area_msg = db.LifeAreaMessage(
         id=uuid.uuid4(),
         data=message_content,
         area_id=area_id,
-        created_ts=0,
     )
-    db.LifeAreaMessages.create(last_area_msg.id, last_area_msg)
+    db.LifeAreaMessagesManager.create(last_area_msg.id, last_area_msg)
 
     area_msgs: list[str] = [
-        msg.data for msg in db.LifeAreaMessages.list_by_area(area_id)
+        msg.data for msg in db.LifeAreaMessagesManager.list_by_area(area_id)
     ]
-    area_criteria: list[str] = [c.title for c in db.Criteria.list_by_area(area_id)]
+    area_criteria: list[str] = [
+        c.title for c in db.CriteriaManager.list_by_area(area_id)
+    ]
 
     ai_answer, was_covered = await check_criteria_covered(area_msgs, area_criteria, llm)
     if was_covered:
