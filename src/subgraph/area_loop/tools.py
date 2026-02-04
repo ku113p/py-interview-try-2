@@ -30,19 +30,19 @@ async def call_tool(tool_call: ToolCall):
 
 class LifeAreaMethods:
     @staticmethod
-    def list(user_id: str) -> list[db.LifeAreaObject]:
+    def list(user_id: str) -> list[db.LifeArea]:
         u_id = _str_to_uuid(user_id)
-        return [obj for obj in db.LifeArea.list() if obj.user_id == u_id]
+        return [obj for obj in db.LifeAreaManager.list() if obj.user_id == u_id]
 
     @staticmethod
-    def get(user_id: str, area_id: str) -> db.LifeAreaObject:
+    def get(user_id: str, area_id: str) -> db.LifeArea:
         u_id = _str_to_uuid(user_id)
         a_id = _str_to_uuid(area_id)
 
         if u_id is None or a_id is None:
             raise KeyError
 
-        area = db.LifeArea.get_by_id(a_id)
+        area = db.LifeAreaManager.get_by_id(a_id)
         if area is None:
             raise KeyError(f"LifeArea {area_id} not found")
 
@@ -52,9 +52,7 @@ class LifeAreaMethods:
         return area
 
     @staticmethod
-    def create(
-        user_id: str, title: str, parent_id: str | None = None
-    ) -> db.LifeAreaObject:
+    def create(user_id: str, title: str, parent_id: str | None = None) -> db.LifeArea:
         u_id = _str_to_uuid(user_id)
         p_id = _str_to_uuid(parent_id)
 
@@ -62,8 +60,8 @@ class LifeAreaMethods:
             raise KeyError
 
         area_id = uuid.uuid4()
-        area = db.LifeAreaObject(id=area_id, title=title, parent_id=p_id, user_id=u_id)
-        db.LifeArea.create(area_id, area)
+        area = db.LifeArea(id=area_id, title=title, parent_id=p_id, user_id=u_id)
+        db.LifeAreaManager.create(area_id, area)
         return area
 
     @staticmethod
@@ -74,21 +72,21 @@ class LifeAreaMethods:
         if u_id is None or a_id is None:
             raise KeyError
 
-        area = db.LifeArea.get_by_id(a_id)
+        area = db.LifeAreaManager.get_by_id(a_id)
         if area is None:
             raise KeyError
         if area.user_id != u_id:
             raise KeyError
 
-        db.LifeArea.delete(a_id)
+        db.LifeAreaManager.delete(a_id)
 
 
 class CriteriaMethods:
     @staticmethod
-    def list(user_id: str, area_id: str) -> list[db.CriteriaObject]:
+    def list(user_id: str, area_id: str) -> list[db.Criteria]:
         area = LifeAreaMethods.get(user_id, area_id)
 
-        return [obj for obj in db.Criteria.list() if obj.area_id == area.id]
+        return [obj for obj in db.CriteriaManager.list() if obj.area_id == area.id]
 
     @staticmethod
     def delete(user_id: str, criteria_id: str) -> None:
@@ -96,32 +94,32 @@ class CriteriaMethods:
         c_id = _str_to_uuid(criteria_id)
         if u_id is None or c_id is None:
             raise KeyError
-        criteria = db.Criteria.get_by_id(c_id)
+        criteria = db.CriteriaManager.get_by_id(c_id)
         if criteria is None:
             raise KeyError
         area = LifeAreaMethods.get(user_id, str(criteria.area_id))
         if area.user_id != u_id:
             raise KeyError
-        db.Criteria.delete(c_id)
+        db.CriteriaManager.delete(c_id)
 
     @staticmethod
-    def create(user_id: str, area_id: str, title: str) -> db.CriteriaObject:
+    def create(user_id: str, area_id: str, title: str) -> db.Criteria:
         area = LifeAreaMethods.get(user_id, area_id)
 
         criteria_id = uuid.uuid4()
-        criteria = db.CriteriaObject(id=criteria_id, title=title, area_id=area.id)
-        db.Criteria.create(criteria_id, criteria)
+        criteria = db.Criteria(id=criteria_id, title=title, area_id=area.id)
+        db.CriteriaManager.create(criteria_id, criteria)
         return criteria
 
 
 @tool
-def list_life_areas(user_id: str) -> list[db.LifeAreaObject]:
+def list_life_areas(user_id: str) -> list[db.LifeArea]:
     """List all life areas for a user."""
     return LifeAreaMethods.list(user_id)
 
 
 @tool
-def get_life_area(user_id: str, area_id: str) -> db.LifeAreaObject:
+def get_life_area(user_id: str, area_id: str) -> db.LifeArea:
     """Fetch a single life area by id for a user."""
     return LifeAreaMethods.get(user_id, area_id)
 
@@ -129,7 +127,7 @@ def get_life_area(user_id: str, area_id: str) -> db.LifeAreaObject:
 @tool
 def create_life_area(
     user_id: str, title: str, parent_id: str | None = None
-) -> db.LifeAreaObject:
+) -> db.LifeArea:
     """Create a new life area for a user."""
     return LifeAreaMethods.create(user_id, title, parent_id)
 
@@ -141,7 +139,7 @@ def delete_life_area(user_id: str, area_id: str) -> None:
 
 
 @tool
-def list_criteria(user_id: str, area_id: str) -> list[db.CriteriaObject]:
+def list_criteria(user_id: str, area_id: str) -> list[db.Criteria]:
     """List criteria belonging to a life area."""
     return CriteriaMethods.list(user_id, area_id)
 
@@ -153,7 +151,7 @@ def delete_criteria(user_id: str, criteria_id: str) -> None:
 
 
 @tool
-def create_criteria(user_id: str, area_id: str, title: str) -> db.CriteriaObject:
+def create_criteria(user_id: str, area_id: str, title: str) -> db.Criteria:
     """Create a criteria item under a life area."""
     return CriteriaMethods.create(user_id, area_id, title)
 

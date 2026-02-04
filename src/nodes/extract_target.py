@@ -1,56 +1,35 @@
 from typing import Annotated
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from src import db
 from src.domain import user
 from src.state import Target
 
 
 class State(BaseModel):
     user: user.User
-    text: str
     messages: Annotated[list[BaseMessage], add_messages]
     target: Target | None
 
 
 async def extract_target(state: State, llm: ChatOpenAI):
     user_obj = state.user
-    text = state.text
-
-    prev_messages = get_formatted_history(user_obj)
-    full_context = prev_messages + [HumanMessage(content=text)]
 
     if user_obj.mode != user.InputMode.auto:
         target = Target.from_user_mode(user_obj.mode)
     elif user_obj.current_life_area_id is not None:
         target = Target.interview
     else:
-        target = await extract_target_from_messages(full_context, llm)
+        target = await extract_target_from_messages(state.messages, llm)
 
-    return {"messages": full_context, "target": target}
+    return {"target": target}
 
 
 class IntentClassification(BaseModel):
     target: Target = Field(..., description="The classified target mode.")
-
-
-def get_formatted_history(user_obj: user.User, limit: int = 10) -> list[BaseMessage]:
-    domain_msgs = [msg.data for msg in db.History.list_by_user(user_obj.id)][-limit:]
-
-    formatted_messages = []
-    for msg in domain_msgs:
-        if msg["role"] == "user":
-            formatted_messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "ai":
-            formatted_messages.append(AIMessage(content=msg["content"]))
-        else:
-            raise NotImplementedError()
-
-    return formatted_messages
 
 
 async def extract_target_from_messages(

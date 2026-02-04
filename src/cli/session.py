@@ -25,14 +25,14 @@ def parse_user_id(value: str | None) -> uuid.UUID:
 
 
 def ensure_user(user_id: uuid.UUID) -> user.User:
-    existing = db.Users.get_by_id(user_id)
+    existing = db.UsersManager.get_by_id(user_id)
     if existing is not None:
         return user.User(id=existing.id, mode=user.InputMode(existing.mode))
 
     user_obj = user.User(id=user_id, mode=user.InputMode.auto)
-    db.Users.create(
+    db.UsersManager.create(
         user_obj.id,
-        db.UserObject(id=user_obj.id, name="cli", mode=user_obj.mode.value),
+        db.User(id=user_obj.id, name="cli", mode=user_obj.mode.value),
     )
     return user_obj
 
@@ -91,6 +91,7 @@ def _create_state_with_tempfiles(
         text=user_input,
         target=Target.interview,
         messages=[],
+        messages_to_save=[],
         area_id=uuid.uuid4(),
         extract_data_tasks=asyncio.Queue(),
         was_covered=False,

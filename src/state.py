@@ -34,6 +34,7 @@ class State(BaseModel):
     text: str
     target: Target
     messages: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[list[BaseMessage], add_messages]
     area_id: uuid.UUID
     extract_data_tasks: asyncio.Queue[uuid.UUID]
     was_covered: bool

@@ -50,21 +50,22 @@ class AreaFilterMixin(Generic[T]):
 
 
 @dataclass
-class UserObject:
+class User:
     id: uuid.UUID
     name: str
     mode: str
 
 
 @dataclass(frozen=True)
-class HistoryObject:
+class History:
     id: uuid.UUID
     data: dict
     user_id: uuid.UUID
+    created_ts: int
 
 
 @dataclass
-class LifeAreaObject:
+class LifeArea:
     id: uuid.UUID
     title: str
     parent_id: uuid.UUID | None
@@ -72,40 +73,47 @@ class LifeAreaObject:
 
 
 @dataclass
-class CriteriaObject:
+class Criteria:
     id: uuid.UUID
     title: str
     area_id: uuid.UUID
 
 
 @dataclass
-class LifeAreaMessageObject:
+class LifeAreaMessage:
     id: uuid.UUID
     data: str
     area_id: uuid.UUID
-    created_ts: int
 
 
-class Users(BaseModel[UserObject]):
+class UsersManager(BaseModel[User]):
     pass
 
 
-class History(BaseModel[HistoryObject], UserFilterMixin[HistoryObject]):
-    pass
-
-
-class LifeArea(BaseModel[LifeAreaObject], UserFilterMixin[LifeAreaObject]):
-    pass
-
-
-class Criteria(BaseModel[CriteriaObject], AreaFilterMixin[CriteriaObject]):
-    pass
-
-
-class LifeAreaMessages(
-    BaseModel[LifeAreaMessageObject], AreaFilterMixin[LifeAreaMessageObject]
-):
+class HistoryManager(BaseModel[History], UserFilterMixin[History]):
     @classmethod
-    def create(cls, id: uuid.UUID, data: LifeAreaMessageObject):
-        data.created_ts = int(time.time())
-        super().create(id, data)
+    def create(cls, id: uuid.UUID, data: History):
+        created_ts = int(time.time())
+        super().create(
+            id,
+            History(
+                id=data.id,
+                data=data.data,
+                user_id=data.user_id,
+                created_ts=created_ts,
+            ),
+        )
+
+
+class LifeAreaManager(BaseModel[LifeArea], UserFilterMixin[LifeArea]):
+    pass
+
+
+class CriteriaManager(BaseModel[Criteria], AreaFilterMixin[Criteria]):
+    pass
+
+
+class LifeAreaMessagesManager(
+    BaseModel[LifeAreaMessage], AreaFilterMixin[LifeAreaMessage]
+):
+    pass
