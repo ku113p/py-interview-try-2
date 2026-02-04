@@ -1,13 +1,20 @@
 # Variables
 PYTHON := uv run python
+RUN_ARGS := $(filter-out $@,$(MAKECMDGOALS))
 KERNEL_NAME := langgraph-agent
 # Avoid parentheses here to prevent shell expansion issues in some environments
 DISPLAY_NAME := "Python-LangGraph-Agent"
 
-.PHONY: help install dev-setup jupyter clean
+.PHONY: help install run-cli dev-setup jupyter clean
 
 install: ## Install production dependencies
 	uv sync
+
+run-cli: ## Run the CLI app (transport=cli)
+	$(PYTHON) main.py --transport cli $(RUN_ARGS)
+
+%:
+	@:
 
 dev-setup: install ## Install dev deps and register Jupyter kernel
 	uv add --dev ipykernel grandalf

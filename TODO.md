@@ -1,4 +1,4 @@
-- [ ] Document project purpose, setup, and limitations; replace placeholder description (README.md, pyproject.toml)
+- [x] Document project purpose, setup, and limitations; replace placeholder description (README.md, pyproject.toml)
 - [x] Make AI config robust: defer OPENAI_API_KEY lookup to runtime with clear errors (src/ai.py)
 - [x] Fix tool binding so tools are actually available to the model (src/nodes/area_chat.py)
 - [x] Align audio pipeline formats or transcode to known format (src/nodes/extract_audio.py, src/nodes/extract_text.py)
