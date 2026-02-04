@@ -4,10 +4,12 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
+from src.message_buckets import MessageBuckets, merge_message_buckets
+
 
 class State(BaseModel):
     messages: Annotated[list[BaseMessage], add_messages]
-    messages_to_save: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
 
 

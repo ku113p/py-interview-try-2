@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from typing import Annotated
 
@@ -9,13 +10,14 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from src import db
+from src.message_buckets import MessageBuckets, merge_message_buckets
 
 
 class State(BaseModel):
     area_id: uuid.UUID
     extract_data_tasks: asyncio.Queue[uuid.UUID]
     messages: Annotated[list[BaseMessage], add_messages]
-    messages_to_save: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
     was_covered: bool
 
@@ -63,7 +65,7 @@ async def interview(state: State, llm: ChatOpenAI):
     ai_msg = AIMessage(content=ai_answer)
     return {
         "messages": [ai_msg],
-        "messages_to_save": [ai_msg],
+        "messages_to_save": {time.time(): [ai_msg]},
         "success": True,
         "was_covered": was_covered,
     }
