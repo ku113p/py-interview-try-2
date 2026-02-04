@@ -16,14 +16,14 @@
 
 ## High Priority Bugs & Issues
 - [x] **CRITICAL**: Fix environment variable mismatch - .env has OPENROUTER_API_KEY but code expects OPENAI_API_KEY (src/ai.py:19)
-- [ ] Fix message history ordering - currently loads newest first instead of oldest first (src/nodes/load_history.py:22-25)
-- [ ] Fix potential race condition in MessageBuckets - multiple timestamps using time.time() could collide (src/nodes/save_history.py:56, src/nodes/interview.py:70)
-- [ ] Add default values or proper validation for media_file and audio_file in State (src/state.py:34,40)
-- [ ] Add ffmpeg availability check before attempting extraction (src/subgraph/extract_flow/nodes/extract_audio.py:52)
+- [x] Fix message history ordering - loads most recent messages in chronological order (src/nodes/load_history.py:25)
+- [x] Fix potential race condition in MessageBuckets - replaced time.time() with time_ns() for nanosecond precision (src/timestamp.py + 7 files)
+- [x] Add default values or proper validation for media_file and audio_file in State (src/state.py:33-34, src/subgraph/extract_flow/nodes/extract_audio.py:25-26)
+- [x] Add ffmpeg availability check before attempting extraction (main.py:8, src/subgraph/extract_flow/nodes/extract_audio.py:11)
 - [ ] Create test suite - zero test coverage currently exists
 
 ## Medium Priority Improvements
-- [ ] Add empty list check for tool_calls in area_loop flow router (src/subgraph/area_loop/flow.py:8)
+- [x] Add empty list check for tool_calls in area_loop flow router (src/subgraph/area_loop/flow.py:8-9)
 - [ ] Review database connection handling - ensure all connections properly closed (src/db.py:42-44)
 - [ ] Remove or implement area_threshold node - currently unreachable dead code (src/subgraph/area_loop/flow.py:7-10, nodes/area_threshold.py)
 - [ ] Add input validation for user messages (length limits, sanitization) (src/cli/session.py:109)

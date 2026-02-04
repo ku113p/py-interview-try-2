@@ -1,4 +1,3 @@
-import time
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, BaseMessage
@@ -6,6 +5,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from src.message_buckets import MessageBuckets, merge_message_buckets
+from src.timestamp import get_timestamp
 
 
 class State(BaseModel):
@@ -19,6 +19,6 @@ async def area_threshold(state: State):
     ai_msg = AIMessage(content=content)
     return {
         "messages": [ai_msg],
-        "messages_to_save": {time.time(): [ai_msg]},
+        "messages_to_save": {get_timestamp(): [ai_msg]},
         "success": False,
     }

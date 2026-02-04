@@ -1,5 +1,4 @@
 import sqlite3
-import time
 from typing import Annotated, cast
 
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -10,6 +9,7 @@ from pydantic import BaseModel
 from src import db
 from src.message_buckets import MessageBuckets, merge_message_buckets
 from src.subgraph.area_loop.tools import call_tool
+from src.timestamp import get_timestamp
 
 
 class State(BaseModel):
@@ -27,7 +27,7 @@ def _build_tool_message(tool_call: dict[str, object], content: str) -> ToolMessa
 
 
 def _record_message(messages_to_save: MessageBuckets, message: ToolMessage) -> None:
-    ts = time.time()
+    ts = get_timestamp()
     if ts in messages_to_save:
         messages_to_save[ts].append(message)
     else:
@@ -79,10 +79,10 @@ async def _run_tool_calls(
                 _record_message(messages_to_save, t_msg)
     except ToolExecutionError as exc:
         failed_message = exc.message
-        return [failed_message], {time.time(): [failed_message]}, False
+        return [failed_message], {get_timestamp(): [failed_message]}, False
     except Exception:
         fallback = _fallback_tool_failure()
-        return [fallback], {time.time(): [fallback]}, False
+        return [fallback], {get_timestamp(): [fallback]}, False
     return tools_messages, messages_to_save, True
 
 

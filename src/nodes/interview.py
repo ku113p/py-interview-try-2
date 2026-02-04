@@ -1,6 +1,5 @@
 import asyncio
 import json
-import time
 import uuid
 from typing import Annotated
 
@@ -12,6 +11,7 @@ from pydantic import BaseModel
 from src import db
 from src.ids import new_id
 from src.message_buckets import MessageBuckets, merge_message_buckets
+from src.timestamp import get_timestamp
 
 
 class State(BaseModel):
@@ -49,7 +49,7 @@ async def interview(state: State, llm: ChatOpenAI):
         id=new_id(),
         data=message_content,
         area_id=area_id,
-        created_ts=time.time(),
+        created_ts=get_timestamp(),
     )
     db.LifeAreaMessagesManager.create(last_area_msg.id, last_area_msg)
 
@@ -67,7 +67,7 @@ async def interview(state: State, llm: ChatOpenAI):
     ai_msg = AIMessage(content=ai_answer)
     return {
         "messages": [ai_msg],
-        "messages_to_save": {time.time(): [ai_msg]},
+        "messages_to_save": {get_timestamp(): [ai_msg]},
         "success": True,
         "was_covered": was_covered,
     }
