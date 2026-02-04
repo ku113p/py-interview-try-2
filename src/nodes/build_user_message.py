@@ -1,4 +1,3 @@
-import time
 from typing import Annotated
 
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -7,6 +6,7 @@ from pydantic import BaseModel
 
 from src.domain import user
 from src.message_buckets import MessageBuckets, merge_message_buckets
+from src.timestamp import get_timestamp
 
 
 class State(BaseModel):
@@ -19,4 +19,4 @@ class State(BaseModel):
 async def build_user_message(state: State):
     new_msg = HumanMessage(content=state.text)
 
-    return {"messages": [new_msg], "messages_to_save": {time.time(): [new_msg]}}
+    return {"messages": [new_msg], "messages_to_save": {get_timestamp(): [new_msg]}}

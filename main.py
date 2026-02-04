@@ -2,9 +2,11 @@ import argparse
 import asyncio
 
 from src.cli.session import parse_user_id, run_cli_async
+from src.subgraph.extract_flow.nodes.extract_audio import check_ffmpeg_availability
 
 
 def main() -> None:
+    check_ffmpeg_availability()
     parser = argparse.ArgumentParser(description="Interview CLI")
     parser.add_argument(
         "--transport",

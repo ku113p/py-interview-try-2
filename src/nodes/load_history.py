@@ -20,9 +20,9 @@ async def load_history(state: State):
 
 def get_formatted_history(user_obj: user.User, limit: int = 10) -> list[BaseMessage]:
     msgs = sorted(
-        db.HistoryManager.list_by_user(user_obj.id), key=lambda x: -x.created_ts
+        db.HistoryManager.list_by_user(user_obj.id), key=lambda x: x.created_ts
     )
-    domain_msgs = [msg.data for msg in msgs[:limit]]
+    domain_msgs = [msg.data for msg in msgs[-limit:]]
 
     formatted_messages = []
     for msg in domain_msgs:

@@ -30,8 +30,8 @@ class State(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     user: user.User
     message: message.ClientMessage
-    media_file: BinaryIO
-    audio_file: BinaryIO
+    media_file: BinaryIO | None = None
+    audio_file: BinaryIO | None = None
     text: str
     target: Target
     messages: Annotated[list[BaseMessage], add_messages]
