@@ -1,4 +1,3 @@
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Generic, Type, TypeVar
@@ -61,7 +60,7 @@ class History:
     id: uuid.UUID
     data: dict
     user_id: uuid.UUID
-    created_ts: int
+    created_ts: float
 
 
 @dataclass
@@ -91,18 +90,7 @@ class UsersManager(BaseModel[User]):
 
 
 class HistoryManager(BaseModel[History], UserFilterMixin[History]):
-    @classmethod
-    def create(cls, id: uuid.UUID, data: History):
-        created_ts = int(time.time())
-        super().create(
-            id,
-            History(
-                id=data.id,
-                data=data.data,
-                user_id=data.user_id,
-                created_ts=created_ts,
-            ),
-        )
+    pass
 
 
 class LifeAreaManager(BaseModel[LifeArea], UserFilterMixin[LifeArea]):

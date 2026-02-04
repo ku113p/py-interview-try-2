@@ -8,6 +8,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict
 
 from src.domain import message, user
+from src.message_buckets import MessageBuckets, merge_message_buckets
 
 
 class Target(enum.Enum):
@@ -34,7 +35,7 @@ class State(BaseModel):
     text: str
     target: Target
     messages: Annotated[list[BaseMessage], add_messages]
-    messages_to_save: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
     area_id: uuid.UUID
     extract_data_tasks: asyncio.Queue[uuid.UUID]

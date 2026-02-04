@@ -2,16 +2,16 @@ import uuid
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from src import db
 from src.domain import user
+from src.message_buckets import MessageBuckets, merge_message_buckets
 
 
 class State(BaseModel):
     user: user.User
-    messages_to_save: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
 
 
@@ -49,20 +49,21 @@ def _message_to_dict(msg: BaseMessage) -> dict[str, object]:
 
 
 def save_history(state: State) -> dict:
-    messages = state.messages_to_save or []
-    if not messages:
+    messages_by_ts = state.messages_to_save or {}
+    if not messages_by_ts:
         return {}
 
-    for msg in messages:
-        history_id = uuid.uuid4()
-        db.HistoryManager.create(
-            history_id,
-            db.History(
-                id=history_id,
-                data=_message_to_dict(msg),
-                user_id=state.user.id,
-                created_ts=0,
-            ),
-        )
+    for created_ts, messages in messages_by_ts.items():
+        for msg in messages:
+            history_id = uuid.uuid4()
+            db.HistoryManager.create(
+                history_id,
+                db.History(
+                    id=history_id,
+                    data=_message_to_dict(msg),
+                    user_id=state.user.id,
+                    created_ts=created_ts,
+                ),
+            )
 
     return {}

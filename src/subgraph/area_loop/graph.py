@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
+from src.message_buckets import MessageBuckets, merge_message_buckets
 from src.subgraph.area_loop.flow import route_area
 from src.subgraph.area_loop.nodes.area_chat import area_chat
 from src.subgraph.area_loop.nodes.area_end import area_end
@@ -16,7 +17,7 @@ from src.subgraph.area_loop.nodes.area_tools import area_tools
 
 class AreaState(BaseModel):
     messages: Annotated[list[BaseMessage], add_messages]
-    messages_to_save: Annotated[list[BaseMessage], add_messages]
+    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
 
 
