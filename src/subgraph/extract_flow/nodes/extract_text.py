@@ -4,6 +4,8 @@ from typing import BinaryIO
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
+from src.utils.content import normalize_content
+
 
 async def extract_text_from_audio(audio_file: BinaryIO, llm: ChatOpenAI) -> str:
     audio_file.seek(0)
@@ -23,11 +25,7 @@ async def extract_text_from_audio(audio_file: BinaryIO, llm: ChatOpenAI) -> str:
     )
 
     response = await llm.ainvoke([message])
-    if isinstance(response.content, str):
-        return response.content
-    if isinstance(response.content, list):
-        return "".join(str(part) for part in response.content)
-    return str(response.content)
+    return normalize_content(response.content)
 
 
 async def extract_text_from_message(

@@ -26,14 +26,14 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.transport != "cli":
-        raise RuntimeError(f"Transport not implemented: {args.transport}")
+        raise RuntimeError(f"Transport '{args.transport}' not supported. Use: cli")
 
     try:
         asyncio.run(run_cli_async(args.user_id))
     except RuntimeError as exc:
         if "asyncio.run() cannot be called" in str(exc):
             raise RuntimeError(
-                "Event loop already running. Use run_cli_async() in an async context."
+                "Event loop already running. Call run_cli_async() directly in async context."
             ) from exc
         raise
 

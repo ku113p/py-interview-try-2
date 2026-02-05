@@ -52,16 +52,16 @@ async def extract_audio_to_wav(
 
     cmd = [
         "ffmpeg",
-        "-y",
+        "-y",  # Overwrite without prompt
         "-i",
         media_tmp_file.name,
-        "-vn",
+        "-vn",  # No video
         "-ac",
-        "1",
+        "1",  # Mono audio
         "-ar",
-        "16000",
+        "16000",  # 16kHz sample rate (speech recognition standard)
         "-c:a",
-        "pcm_s16le",
+        "pcm_s16le",  # 16-bit PCM codec
         audio_tmp_file.name,
     ]
 

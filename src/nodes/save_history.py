@@ -8,6 +8,7 @@ from src import db
 from src.domain import user
 from src.ids import new_id
 from src.message_buckets import MessageBuckets, merge_message_buckets
+from src.utils.content import normalize_content
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +29,9 @@ def _normalize_role(role: str) -> str:
     return "ai"
 
 
-def _normalize_content(content: object) -> str:
-    if isinstance(content, list):
-        return "".join(str(part) for part in content)
-    if isinstance(content, str):
-        return content
-    return str(content)
-
-
 def _message_to_dict(msg: BaseMessage) -> dict[str, object]:
     role = getattr(msg, "type", None) or msg.__class__.__name__.lower()
-    content = _normalize_content(msg.content)
+    content = normalize_content(msg.content)
     data: dict[str, object] = {"role": _normalize_role(str(role)), "content": content}
     if isinstance(msg, AIMessage):
         tool_calls = getattr(msg, "tool_calls", None)
