@@ -13,6 +13,7 @@ from src import db
 from src.ids import new_id
 from src.message_buckets import MessageBuckets, merge_message_buckets
 from src.timestamp import get_timestamp
+from src.utils.content import normalize_content
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,7 @@ class CriteriaCoverageResult(BaseModel):
 
 async def interview(state: State, llm: ChatOpenAI):
     area_id = state.area_id
-    message_content = state.messages[-1].content
-    if isinstance(message_content, list):
-        message_content = "".join(str(part) for part in message_content)
-    elif not isinstance(message_content, str):
-        message_content = str(message_content)
+    message_content = normalize_content(state.messages[-1].content)
 
     last_area_msg = db.LifeAreaMessage(
         id=new_id(),

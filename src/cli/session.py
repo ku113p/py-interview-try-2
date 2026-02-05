@@ -12,11 +12,14 @@ from src.domain import message, user
 from src.graph import get_graph
 from src.ids import new_id
 from src.state import State, Target
+from src.utils.content import normalize_content
 
 logger = logging.getLogger(__name__)
 
+# Max chars per message (prevents performance issues)
 MAX_MESSAGE_LENGTH = 10_000
-MIN_PRINTABLE_CHAR = 32  # ASCII space character
+# ASCII space: minimum allowed character
+MIN_PRINTABLE_CHAR = 32
 
 HELP_TEXT = """Commands:
   /help  Show this help
@@ -49,12 +52,7 @@ def format_ai_response(messages: list[BaseMessage]) -> str:
     if not messages:
         return ""
     last_msg = messages[-1]
-    content = last_msg.content
-    if isinstance(content, list):
-        return "".join(str(part) for part in content)
-    if isinstance(content, str):
-        return content
-    return str(content)
+    return normalize_content(last_msg.content)
 
 
 async def run_graph(state: State) -> dict:
@@ -89,14 +87,14 @@ def _normalize_user_input(user_input: str) -> str:
 
 def _validate_user_input(user_input: str) -> str | None:
     if not user_input:
-        return "Message cannot be empty."
+        return "Please type your message"
     if len(user_input) > MAX_MESSAGE_LENGTH:
-        return f"Message too long (max {MAX_MESSAGE_LENGTH} characters)."
+        return f"Message too long: {len(user_input)}/{MAX_MESSAGE_LENGTH} chars"
     if "\x00" in user_input:
-        return "Message contains invalid characters."
+        return "No null characters allowed"
     for char in user_input:
         if ord(char) < MIN_PRINTABLE_CHAR and char not in {"\n", "\r", "\t"}:
-            return "Message contains control characters."
+            return "No control characters allowed"
     return None
 
 
@@ -132,31 +130,34 @@ def _close_tempfiles(tempfiles: list) -> None:
 
 async def _handle_message(user_obj: user.User, user_input: str) -> str:
     normalized_input = _normalize_user_input(user_input).strip()
-    error = _validate_user_input(normalized_input)
-    if error is not None:
+    validation_error = _validate_user_input(normalized_input)
+    if validation_error:
         logger.info(
             "Rejected user input",
             extra={"user_id": str(user_obj.id), "length": len(normalized_input)},
         )
-        return f"Error: {error}"
+        return f"Error: {validation_error}"
 
-    state, tempfiles = _create_state_with_tempfiles(user_obj, normalized_input)
+    return await _process_validated_message(user_obj, normalized_input)
+
+
+async def _process_validated_message(user_obj: user.User, user_input: str) -> str:
+    state, tempfiles = _create_state_with_tempfiles(user_obj, user_input)
     try:
         logger.info(
             "Processing user message",
-            extra={"user_id": str(user_obj.id), "length": len(normalized_input)},
+            extra={"user_id": str(user_obj.id), "length": len(user_input)},
         )
         result = await run_graph(state)
-    except (KeyError, RuntimeError, ValueError) as exc:
-        raise RuntimeError(
-            "Missing required environment variable. Set OPENROUTER_API_KEY."
-        ) from exc
+    except RuntimeError as exc:
+        if "OPENROUTER_API_KEY" in str(exc):
+            raise RuntimeError("Set OPENROUTER_API_KEY environment variable") from exc
+        raise
     finally:
         _close_tempfiles(tempfiles)
 
     messages: list[BaseMessage] = result.get("messages", [])
-    ai_response = format_ai_response(messages)
-    return ai_response if ai_response else "(no response)"
+    return format_ai_response(messages) or "(no response)"
 
 
 async def run_cli_async(user_id: uuid.UUID) -> None:
