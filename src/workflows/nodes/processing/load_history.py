@@ -25,7 +25,7 @@ async def load_history(state: State):
     return {"messages": msgs}
 
 
-def get_formatted_history(user_obj: User, limit: int = 10) -> list[BaseMessage]:
+def get_formatted_history(user_obj: User, limit: int = 30) -> list[BaseMessage]:
     msgs = sorted(
         db.HistoryManager.list_by_user(user_obj.id), key=lambda x: x.created_ts
     )
