@@ -24,6 +24,11 @@ MODEL_AREA_CHAT = MODEL_NAME_FLASH  # Area management conversations
 # History Limits
 HISTORY_LIMIT_GLOBAL = 15  # Default history limit for most nodes
 HISTORY_LIMIT_EXTRACT_TARGET = 5  # Limited context for target extraction
+HISTORY_LIMIT_INTERVIEW = 8  # History limit for interview response
+
+# Model Assignments - Interview Nodes
+MODEL_INTERVIEW_ANALYSIS = MODEL_NAME_FLASH  # Fast analysis for criteria coverage
+MODEL_INTERVIEW_RESPONSE = MODEL_NAME_INTERVIEW  # Reasoning response generation
 
 
 def load_api_key() -> str:
