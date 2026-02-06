@@ -7,13 +7,15 @@ from src.config.settings import (
     MODEL_AREA_CHAT,
     MODEL_AUDIO_TRANSCRIPTION,
     MODEL_EXTRACT_TARGET,
-    MODEL_INTERVIEW,
+    MODEL_INTERVIEW_ANALYSIS,
+    MODEL_INTERVIEW_RESPONSE,
 )
 from src.infrastructure.ai import NewAI
 from src.workflows.nodes.input.build_user_message import build_user_message
 from src.workflows.nodes.input.extract_target import extract_target
 from src.workflows.nodes.persistence.save_history import save_history
-from src.workflows.nodes.processing.interview import interview
+from src.workflows.nodes.processing.interview_analysis import interview_analysis
+from src.workflows.nodes.processing.interview_response import interview_response
 from src.workflows.nodes.processing.load_history import load_history
 from src.workflows.routers.history_router import route_history_save
 from src.workflows.routers.message_router import route_message
@@ -32,7 +34,12 @@ def _add_nodes(builder: StateGraph, extract_graph, area_graph) -> None:
         partial(extract_target, llm=NewAI(MODEL_EXTRACT_TARGET, 0).build()),
     )
     builder.add_node(
-        "interview", partial(interview, llm=NewAI(MODEL_INTERVIEW).build())
+        "interview_analysis",
+        partial(interview_analysis, llm=NewAI(MODEL_INTERVIEW_ANALYSIS).build()),
+    )
+    builder.add_node(
+        "interview_response",
+        partial(interview_response, llm=NewAI(MODEL_INTERVIEW_RESPONSE).build()),
     )
     builder.add_node("save_history", save_history)
     builder.add_node("area_loop", area_graph)
@@ -45,8 +52,9 @@ def _add_edges(builder: StateGraph) -> None:
     builder.add_edge("load_history", "build_user_message")
     builder.add_edge("build_user_message", "extract_target")
     builder.add_conditional_edges("extract_target", route_message)
+    builder.add_edge("interview_analysis", "interview_response")
     builder.add_conditional_edges(
-        "interview", route_history_save, ["save_history", END]
+        "interview_response", route_history_save, ["save_history", END]
     )
     builder.add_conditional_edges(
         "area_loop", route_history_save, ["save_history", END]
