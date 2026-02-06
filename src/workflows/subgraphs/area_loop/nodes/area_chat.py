@@ -31,6 +31,10 @@ async def area_chat(state: State, llm):
         f"- Create, edit, delete, or view life areas\n"
         f"- Create, edit, delete, or list criteria for a life area\n"
         f"- Switch to or discuss a specific life area\n\n"
+        f"IMPORTANT: When working with criteria:\n"
+        f"- Area IDs are UUIDs (e.g., '06985990-c0d4-7293-8000-...')\n"
+        f"- If you don't know the area_id, call 'list_life_areas' first\n"
+        f"- Extract the 'id' field from responses, never use the title as area_id\n\n"
         f"Choose the appropriate tools based on the user's intent."
     )
     message = await model.ainvoke([system_message, *state.messages])
