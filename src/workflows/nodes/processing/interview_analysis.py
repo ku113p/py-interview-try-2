@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict
 
+from src.domain import ExtractDataTask, User
 from src.infrastructure.db import repositories as db
 from src.shared.ids import new_id
 from src.shared.interview_models import CriteriaAnalysis
@@ -22,8 +23,9 @@ logger = logging.getLogger(__name__)
 class State(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    user: User
     area_id: uuid.UUID
-    extract_data_tasks: asyncio.Queue[uuid.UUID]
+    extract_data_tasks: asyncio.Queue[ExtractDataTask]
     messages: Annotated[list[BaseMessage], add_messages]
     messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     success: bool | None = None
@@ -57,7 +59,8 @@ async def interview_analysis(state: State, llm: ChatOpenAI):
     analysis = await _analyze_coverage(area_msgs, area_criteria, llm)
 
     if analysis.all_covered:
-        await state.extract_data_tasks.put(area_id)
+        task = ExtractDataTask(area_id=area_id, user_id=state.user.id)
+        await state.extract_data_tasks.put(task)
 
     logger.info(
         "Interview criteria analyzed",

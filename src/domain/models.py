@@ -63,3 +63,11 @@ class ClientMessage:
     """Client message - can be text or media."""
 
     data: str | MediaMessage
+
+
+@dataclass(frozen=True)
+class ExtractDataTask:
+    """Task to extract data from an area for a user."""
+
+    area_id: uuid.UUID
+    user_id: uuid.UUID

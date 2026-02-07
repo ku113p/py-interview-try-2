@@ -76,6 +76,32 @@ def init_schema(conn: sqlite3.Connection, db_path: str) -> None:
                 ON extracted_data(area_id);
             CREATE INDEX IF NOT EXISTS extracted_data_created_ts_idx
                 ON extracted_data(created_ts);
+            CREATE TABLE IF NOT EXISTS area_summaries (
+                id TEXT PRIMARY KEY,
+                area_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                created_ts REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS area_summaries_area_id_idx
+                ON area_summaries(area_id);
+            CREATE TABLE IF NOT EXISTS user_knowledge (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                created_ts REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS user_knowledge_areas (
+                user_id TEXT NOT NULL,
+                knowledge_id TEXT NOT NULL,
+                area_id TEXT NOT NULL,
+                PRIMARY KEY (user_id, knowledge_id)
+            );
+            CREATE INDEX IF NOT EXISTS user_knowledge_areas_user_id_idx
+                ON user_knowledge_areas(user_id);
+            CREATE INDEX IF NOT EXISTS user_knowledge_areas_area_id_idx
+                ON user_knowledge_areas(area_id);
             """
         )
 

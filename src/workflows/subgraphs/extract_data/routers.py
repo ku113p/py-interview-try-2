@@ -1,0 +1,29 @@
+"""Routers for extract_data workflow."""
+
+from typing import Literal
+
+from .state import ExtractDataState
+
+
+def route_has_data(state: ExtractDataState) -> Literal["extract_summaries", "__end__"]:
+    """Route after load_area_data - skip if no data to process.
+
+    Returns:
+        "extract_summaries" if there is data to extract, "__end__" otherwise.
+    """
+    if not state.criteria_titles or not state.messages:
+        return "__end__"
+    return "extract_summaries"
+
+
+def route_extraction_success(
+    state: ExtractDataState,
+) -> Literal["save_summary", "__end__"]:
+    """Route after extract_summaries - continue only if successful.
+
+    Returns:
+        "save_summary" if extraction succeeded, "__end__" otherwise.
+    """
+    if not state.success or not state.extracted_summary:
+        return "__end__"
+    return "save_summary"

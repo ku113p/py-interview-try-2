@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from src.domain import InputMode, User
 from src.infrastructure.db import repositories as db
 from src.shared.ids import new_id
 from src.shared.interview_models import CriteriaAnalysis, CriterionCoverage
@@ -31,6 +32,7 @@ class TestInterviewAnalysis:
         # Arrange
         area_id = new_id()
         user_id = new_id()
+        user = User(id=user_id, mode=InputMode.auto)
 
         # Create required area in DB
         area = db.LifeArea(
@@ -42,6 +44,7 @@ class TestInterviewAnalysis:
         db.LifeAreaManager.create(area_id, area)
 
         state = AnalysisState(
+            user=user,
             area_id=area_id,
             extract_data_tasks=asyncio.Queue(),
             messages=[HumanMessage(content="I have 5 years of Python experience")],
@@ -75,6 +78,7 @@ class TestInterviewAnalysis:
         # Arrange
         area_id = new_id()
         user_id = new_id()
+        user = User(id=user_id, mode=InputMode.auto)
 
         area = db.LifeArea(
             id=area_id,
@@ -85,6 +89,7 @@ class TestInterviewAnalysis:
         db.LifeAreaManager.create(area_id, area)
 
         state = AnalysisState(
+            user=user,
             area_id=area_id,
             extract_data_tasks=asyncio.Queue(),
             messages=[HumanMessage(content="Test message")],

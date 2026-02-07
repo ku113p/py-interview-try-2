@@ -3,6 +3,7 @@
 from src.domain.models import (
     AccountGate,
     ClientMessage,
+    ExtractDataTask,
     InputMode,
     MediaMessage,
     MessageType,
@@ -16,6 +17,7 @@ __all__ = [
     "InputMode",
     "AccountGate",
     "ClientMessage",
+    "ExtractDataTask",
     "MediaMessage",
     "MessageType",
 ]
