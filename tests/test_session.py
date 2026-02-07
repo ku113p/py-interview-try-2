@@ -1,7 +1,8 @@
 """Unit tests for session helpers."""
 
 from src.adapters.cli.session import ensure_user
-from src.application.workers.workers import _get_current_area_id
+from src.application.workers.workers import _build_state
+from src.domain import ClientMessage, User
 from src.domain.models import InputMode
 from src.infrastructure.db import repositories as db
 from src.shared.ids import new_id
@@ -49,12 +50,11 @@ class TestEnsureUser:
         assert db_user.name == "cli"
 
 
-class TestGetCurrentAreaId:
-    """Test the _get_current_area_id function."""
+class TestBuildState:
+    """Test the _build_state function."""
 
-    def test_returns_current_area_when_set(self, temp_db):
-        """Should return user's current_area_id when set."""
-        # Arrange - create user with current_area_id set
+    def test_uses_current_area_id_when_set(self, temp_db):
+        """Should use user's current_area_id when set."""
         user_id = new_id()
         area_id = new_id()
 
@@ -78,15 +78,16 @@ class TestGetCurrentAreaId:
             ),
         )
 
-        # Act
-        current_area_id = _get_current_area_id(user_id)
+        user = User(id=user_id, mode=InputMode.auto)
+        msg = ClientMessage(data="test message")
 
-        # Assert
-        assert current_area_id == area_id
+        state, temp_files = _build_state(msg, user)
 
-    def test_returns_none_when_not_set(self, temp_db):
-        """Should return None when no current_area_id."""
-        # Arrange - create user without current_area_id
+        assert state.area_id == area_id
+        assert len(temp_files) == 2
+
+    def test_generates_new_area_id_when_not_set(self, temp_db):
+        """Should generate new area_id when no current_area_id."""
         user_id = new_id()
         db.UsersManager.create(
             user_id,
@@ -98,19 +99,21 @@ class TestGetCurrentAreaId:
             ),
         )
 
-        # Act
-        current_area_id = _get_current_area_id(user_id)
+        user = User(id=user_id, mode=InputMode.auto)
+        msg = ClientMessage(data="test message")
 
-        # Assert
-        assert current_area_id is None
+        state, temp_files = _build_state(msg, user)
 
-    def test_returns_none_for_missing_user(self, temp_db):
-        """Should return None when user not found."""
-        # Arrange - user_id that doesn't exist
+        assert state.area_id is not None
+        assert len(temp_files) == 2
+
+    def test_generates_new_area_id_for_missing_user(self, temp_db):
+        """Should generate new area_id when user not in database."""
         user_id = new_id()
+        user = User(id=user_id, mode=InputMode.auto)
+        msg = ClientMessage(data="test message")
 
-        # Act
-        current_area_id = _get_current_area_id(user_id)
+        state, temp_files = _build_state(msg, user)
 
-        # Assert
-        assert current_area_id is None
+        assert state.area_id is not None
+        assert len(temp_files) == 2

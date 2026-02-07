@@ -67,130 +67,98 @@ class ToolExecutionError(Exception):
         self.message = message
 
 
-def _build_tool_message(tool_call: dict[str, object], content: str) -> ToolMessage:
-    return ToolMessage(
-        content=content,
-        tool_call_id=tool_call["id"],
-        name=tool_call["name"],
-    )
-
-
-def _record_message(messages_to_save: MessageBuckets, message: ToolMessage) -> None:
-    ts = get_timestamp()
-    if ts in messages_to_save:
-        messages_to_save[ts].append(message)
-    else:
-        messages_to_save[ts] = [message]
-
-
-def _fallback_tool_failure() -> ToolMessage:
-    return ToolMessage(
-        content="tool_error: ToolFailure",
-        tool_call_id="unknown",
-        name="unknown",
-    )
-
-
-def _validate_tool_call(call: dict[str, object]) -> str | None:
-    """Validate tool call structure. Returns error message or None if valid."""
-    if not isinstance(call, dict):
-        return "tool_call must be a dictionary"
-    if "id" not in call or not isinstance(call.get("id"), str):
-        return "tool_call missing required 'id' field"
-    if "name" not in call or not isinstance(call.get("name"), str):
-        return "tool_call missing required 'name' field"
-    return None
-
-
-async def _execute_tool_call(call: ToolCall, conn: sqlite3.Connection) -> ToolMessage:
-    call_dict = cast(dict[str, object], call)
-    validation_error = _validate_tool_call(call_dict)
-    if validation_error:
+def _validate_tool_call(call_dict: dict[str, object]) -> tuple[str, str]:
+    """Validate tool call structure and return (call_id, call_name)."""
+    if not isinstance(call_dict, dict):
         raise ToolExecutionError(
-            _build_tool_message(
-                {
-                    "id": call_dict.get("id", "unknown"),
-                    "name": call_dict.get("name", "unknown"),
-                },
-                f"tool_error: ValidationError: {validation_error}",
+            ToolMessage(
+                content="tool_error: ValidationError: tool_call must be a dictionary",
+                tool_call_id="unknown",
+                name="unknown",
             )
         )
+    call_id = call_dict.get("id", "unknown")
+    call_name = call_dict.get("name", "unknown")
+    if not isinstance(call_id, str) or not isinstance(call_name, str):
+        raise ToolExecutionError(
+            ToolMessage(
+                content="tool_error: ValidationError: tool_call missing required fields",
+                tool_call_id=str(call_id),
+                name=str(call_name),
+            )
+        )
+    return call_id, call_name
+
+
+async def _execute_tool_call(
+    call: dict[str, object], conn: sqlite3.Connection
+) -> ToolMessage:
+    """Execute a single tool call and return the result message."""
+    call_id, call_name = _validate_tool_call(call)
     try:
-        tool_result = await call_tool(call, conn=conn)
+        result = await call_tool(cast(ToolCall, call), conn=conn)
     except Exception as exc:
         raise ToolExecutionError(
-            _build_tool_message(
-                call_dict,
-                f"tool_error: {type(exc).__name__}: {exc}",
+            ToolMessage(
+                content=f"tool_error: {type(exc).__name__}: {exc}",
+                tool_call_id=call_id,
+                name=call_name,
             )
         ) from exc
-    return _build_tool_message(
-        call_dict,
-        str(tool_result),
-    )
+    return ToolMessage(content=str(result), tool_call_id=call_id, name=call_name)
 
 
-async def _execute_all_tools(
-    tool_calls: list[dict[str, object]], conn: sqlite3.Connection
-) -> tuple[list[ToolMessage], MessageBuckets]:
-    """Execute all tool calls and collect results."""
-    tools_messages: list[ToolMessage] = []
-    messages_to_save: MessageBuckets = {}
-    for tool_call in tool_calls:
-        call = cast(ToolCall, tool_call)
-        t_msg = await _execute_tool_call(call, conn)
-        tools_messages.append(t_msg)
-        _record_message(messages_to_save, t_msg)
-    return tools_messages, messages_to_save
-
-
-def _make_failure_result(
-    msg: ToolMessage,
-) -> tuple[list[ToolMessage], MessageBuckets, bool]:
-    """Create a failure result tuple."""
-    return [msg], {get_timestamp(): [msg]}, False
+def _make_result(
+    messages: list[ToolMessage], messages_to_save: MessageBuckets, success: bool
+) -> dict[str, list[ToolMessage] | MessageBuckets | bool]:
+    """Create a result dict for area_tools."""
+    return {
+        "messages": messages,
+        "messages_to_save": messages_to_save,
+        "success": success,
+    }
 
 
 async def _run_tool_calls(
     tool_calls: list[dict[str, object]],
-) -> tuple[list[ToolMessage], MessageBuckets, bool]:
-    logger.info("Executing tool calls", extra={"count": len(tool_calls)})
-    try:
-        with transaction() as conn:
-            conn = cast(sqlite3.Connection, conn)
-            messages, to_save = await _execute_all_tools(tool_calls, conn)
-        return messages, to_save, True
-    except ToolExecutionError as exc:
-        logger.warning("Tool execution error")
-        return _make_failure_result(exc.message)
-    except Exception:
-        logger.exception("Unexpected tool execution failure")
-        return _make_failure_result(_fallback_tool_failure())
+) -> tuple[list[ToolMessage], MessageBuckets]:
+    """Execute all tool calls within a transaction."""
+    messages: list[ToolMessage] = []
+    messages_to_save: MessageBuckets = {}
+    with transaction() as conn:
+        conn = cast(sqlite3.Connection, conn)
+        for call in tool_calls:
+            msg = await _execute_tool_call(call, conn)
+            messages.append(msg)
+            messages_to_save.setdefault(get_timestamp(), []).append(msg)
+    return messages, messages_to_save
 
 
 async def area_tools(state: AreaState):
     """Execute tool calls from the last message."""
-    last_message = state.messages[-1]
-    success = state.success if state.success is not None else True
     tool_calls = cast(
-        list[dict[str, object]], getattr(last_message, "tool_calls", None) or []
+        list[dict[str, object]],
+        getattr(state.messages[-1], "tool_calls", None) or [],
     )
-    tools_messages: list[ToolMessage] = []
-    messages_to_save: MessageBuckets = {}
-    if tool_calls:
-        logger.info("Handling tool calls", extra={"count": len(tool_calls)})
-        tools_messages, messages_to_save, call_success = await _run_tool_calls(
-            tool_calls
-        )
-        if not call_success:
-            success = False
+    if not tool_calls:
+        return _make_result([], {}, state.success)
 
+    logger.info("Executing tool calls", extra={"count": len(tool_calls)})
+    try:
+        messages, messages_to_save = await _run_tool_calls(tool_calls)
+    except ToolExecutionError as exc:
+        logger.warning("Tool execution error")
+        return _make_result([exc.message], {get_timestamp(): [exc.message]}, False)
+    except Exception:
+        logger.exception("Unexpected tool execution failure")
+        fallback = ToolMessage(
+            content="tool_error: ToolFailure", tool_call_id="unknown", name="unknown"
+        )
+        return _make_result([fallback], {get_timestamp(): [fallback]}, False)
+
+    success = state.success if state.success is not None else True
     logger.info("Tool handling completed", extra={"success": success})
-    return {
-        "messages": tools_messages,
-        "messages_to_save": messages_to_save,
-        "success": success,
-    }
+    return _make_result(messages, messages_to_save, success)
 
 
 # -----------------------------------------------------------------------------

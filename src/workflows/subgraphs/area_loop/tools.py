@@ -1,21 +1,33 @@
 """Area loop tools, schemas, and tool registry."""
 
-import inspect
 import logging
 import sqlite3
 import uuid
-from functools import wraps
-from typing import Callable
 
 from langchain.tools import tool
 from langchain_core.messages.tool import ToolCall
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from src.infrastructure.db import repositories as db
 
 from .methods import CriteriaMethods, CurrentAreaMethods, LifeAreaMethods
 
 logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# UUID Validation Helper
+# -----------------------------------------------------------------------------
+
+
+def _validate_uuid_format(value: str, field_name: str) -> str:
+    """Validate that a string is a valid UUID format."""
+    try:
+        uuid.UUID(value)
+    except ValueError as exc:
+        logger.warning("Invalid UUID input", extra={"param": field_name})
+        raise ValueError(f"Invalid UUID for {field_name}: {value}") from exc
+    return value
 
 
 # -----------------------------------------------------------------------------
@@ -30,6 +42,11 @@ class ListLifeAreasArgs(BaseModel):
         ..., description="UUID of the user (provided in system message)"
     )
 
+    @field_validator("user_id")
+    @classmethod
+    def validate_user_id(cls, v: str) -> str:
+        return _validate_uuid_format(v, "user_id")
+
 
 class GetLifeAreaArgs(BaseModel):
     """Arguments for getting a single life area."""
@@ -38,6 +55,11 @@ class GetLifeAreaArgs(BaseModel):
         ..., description="UUID of the user (provided in system message)"
     )
     area_id: str = Field(..., description="UUID of the life area to fetch")
+
+    @field_validator("user_id", "area_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
 
 
 class CreateLifeAreaArgs(BaseModel):
@@ -52,6 +74,18 @@ class CreateLifeAreaArgs(BaseModel):
         description="Optional UUID of parent life area for hierarchical organization",
     )
 
+    @field_validator("user_id")
+    @classmethod
+    def validate_user_id(cls, v: str) -> str:
+        return _validate_uuid_format(v, "user_id")
+
+    @field_validator("parent_id")
+    @classmethod
+    def validate_parent_id(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _validate_uuid_format(v, "parent_id")
+        return v
+
 
 class DeleteLifeAreaArgs(BaseModel):
     """Arguments for deleting a life area."""
@@ -60,6 +94,11 @@ class DeleteLifeAreaArgs(BaseModel):
         ..., description="UUID of the user (provided in system message)"
     )
     area_id: str = Field(..., description="UUID of the life area to delete")
+
+    @field_validator("user_id", "area_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
 
 
 class ListCriteriaArgs(BaseModel):
@@ -72,6 +111,11 @@ class ListCriteriaArgs(BaseModel):
         ...,
         description="UUID of the life area. Use 'list_life_areas' first if you don't have the ID.",
     )
+
+    @field_validator("user_id", "area_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
 
 
 class CreateCriteriaArgs(BaseModel):
@@ -86,6 +130,11 @@ class CreateCriteriaArgs(BaseModel):
     )
     title: str = Field(..., description="Title/name for the new criteria item")
 
+    @field_validator("user_id", "area_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
+
 
 class DeleteCriteriaArgs(BaseModel):
     """Arguments for deleting a criteria item."""
@@ -94,6 +143,11 @@ class DeleteCriteriaArgs(BaseModel):
         ..., description="UUID of the user (provided in system message)"
     )
     criteria_id: str = Field(..., description="UUID of the criteria item to delete")
+
+    @field_validator("user_id", "criteria_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
 
 
 class SetCurrentAreaArgs(BaseModel):
@@ -107,46 +161,10 @@ class SetCurrentAreaArgs(BaseModel):
         description="UUID of the life area to set as current for interview",
     )
 
-
-# -----------------------------------------------------------------------------
-# UUID Validation
-# -----------------------------------------------------------------------------
-
-
-def _validate_uuid(value: str | None, name: str) -> None:
-    if value is None:
-        return
-    try:
-        uuid.UUID(value)
-    except ValueError as exc:
-        logger.warning("Invalid UUID input", extra={"param": name})
-        raise ValueError(f"Invalid UUID for {name}: {value}") from exc
-
-
-def validate_uuid_args(*param_names: str) -> Callable:
-    """Decorator to validate UUID string arguments."""
-
-    def decorator(func: Callable) -> Callable:
-        sig = inspect.signature(func)
-        param_list = list(sig.parameters.keys())
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Validate keyword arguments
-            for name in param_names:
-                if name in kwargs:
-                    _validate_uuid(kwargs[name], name)
-
-            # Validate positional arguments
-            for i, arg in enumerate(args):
-                if i < len(param_list) and param_list[i] in param_names:
-                    _validate_uuid(arg, param_list[i])
-
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
+    @field_validator("user_id", "area_id")
+    @classmethod
+    def validate_uuids(cls, v: str, info: ValidationInfo) -> str:
+        return _validate_uuid_format(v, info.field_name)
 
 
 # -----------------------------------------------------------------------------
@@ -181,21 +199,18 @@ async def call_tool(tool_call: ToolCall, conn: sqlite3.Connection | None = None)
 
 
 @tool(args_schema=ListLifeAreasArgs)
-@validate_uuid_args("user_id")
 def list_life_areas(user_id: str) -> list[db.LifeArea]:
     """List all life areas for a user."""
     return LifeAreaMethods.list(user_id)
 
 
 @tool(args_schema=GetLifeAreaArgs)
-@validate_uuid_args("user_id", "area_id")
 def get_life_area(user_id: str, area_id: str) -> db.LifeArea:
     """Fetch a single life area by id for a user."""
     return LifeAreaMethods.get(user_id, area_id)
 
 
 @tool(args_schema=CreateLifeAreaArgs)
-@validate_uuid_args("user_id", "parent_id")
 def create_life_area(
     user_id: str, title: str, parent_id: str | None = None
 ) -> db.LifeArea:
@@ -204,35 +219,30 @@ def create_life_area(
 
 
 @tool(args_schema=DeleteLifeAreaArgs)
-@validate_uuid_args("user_id", "area_id")
 def delete_life_area(user_id: str, area_id: str) -> None:
     """Delete a life area by id for a user."""
     LifeAreaMethods.delete(user_id, area_id)
 
 
 @tool(args_schema=ListCriteriaArgs)
-@validate_uuid_args("user_id", "area_id")
 def list_criteria(user_id: str, area_id: str) -> list[db.Criteria]:
     """List criteria belonging to a life area."""
     return CriteriaMethods.list(user_id, area_id)
 
 
 @tool(args_schema=DeleteCriteriaArgs)
-@validate_uuid_args("user_id", "criteria_id")
 def delete_criteria(user_id: str, criteria_id: str) -> None:
     """Delete a criteria item by id for a user."""
     CriteriaMethods.delete(user_id, criteria_id)
 
 
 @tool(args_schema=CreateCriteriaArgs)
-@validate_uuid_args("user_id", "area_id")
 def create_criteria(user_id: str, area_id: str, title: str) -> db.Criteria:
     """Create a criteria item under a life area."""
     return CriteriaMethods.create(user_id, area_id, title)
 
 
 @tool(args_schema=SetCurrentAreaArgs)
-@validate_uuid_args("user_id", "area_id")
 def set_current_area(user_id: str, area_id: str) -> db.LifeArea:
     """Set a life area as the current area for interview. Call this after creating an area when the user wants to be interviewed about it."""
     return CurrentAreaMethods.set_current(user_id, area_id)
@@ -249,13 +259,5 @@ AREA_TOOLS = [
     set_current_area,
 ]
 
-TOOL_METHODS = {
-    "list_life_areas": LifeAreaMethods.list,
-    "get_life_area": LifeAreaMethods.get,
-    "create_life_area": LifeAreaMethods.create,
-    "delete_life_area": LifeAreaMethods.delete,
-    "list_criteria": CriteriaMethods.list,
-    "delete_criteria": CriteriaMethods.delete,
-    "create_criteria": CriteriaMethods.create,
-    "set_current_area": CurrentAreaMethods.set_current,
-}
+# Auto-generate from AREA_TOOLS to avoid manual sync
+TOOL_METHODS = {tool.name: tool.func for tool in AREA_TOOLS}
