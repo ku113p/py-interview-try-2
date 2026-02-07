@@ -17,3 +17,11 @@ repos:
     hooks:
       - id: vulture
         args: ["src"]
+  - repo: local
+    hooks:
+      - id: pylint-module-lines
+        name: check module line count
+        entry: uv run pylint --disable=all --enable=C0302 --max-module-lines=300
+        language: system
+        types: [python]
+        files: ^src/

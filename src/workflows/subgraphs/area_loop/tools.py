@@ -1,153 +1,27 @@
-import inspect
+"""Area loop tools and tool registry."""
+
 import logging
 import sqlite3
-import uuid
-from functools import wraps
-from typing import Callable
 
 from langchain.tools import tool
 from langchain_core.messages.tool import ToolCall
-from pydantic import BaseModel, Field
 
 from src.infrastructure.db import repositories as db
-from src.shared.ids import new_id
+
+from .methods import CriteriaMethods, CurrentAreaMethods, LifeAreaMethods
+from .schemas import (
+    CreateCriteriaArgs,
+    CreateLifeAreaArgs,
+    DeleteCriteriaArgs,
+    DeleteLifeAreaArgs,
+    GetLifeAreaArgs,
+    ListCriteriaArgs,
+    ListLifeAreasArgs,
+    SetCurrentAreaArgs,
+)
+from .validators import validate_uuid_args
 
 logger = logging.getLogger(__name__)
-
-
-def _str_to_uuid(value: str | None) -> uuid.UUID | None:
-    if value is None:
-        return None
-    return uuid.UUID(value)
-
-
-def _validate_uuid(value: str | None, name: str) -> None:
-    if value is None:
-        return
-    try:
-        uuid.UUID(value)
-    except ValueError as exc:
-        logger.warning("Invalid UUID input", extra={"param": name})
-        raise ValueError(f"Invalid UUID for {name}: {value}") from exc
-
-
-def validate_uuid_args(*param_names: str) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        sig = inspect.signature(func)
-        param_list = list(sig.parameters.keys())
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Validate keyword arguments
-            for name in param_names:
-                if name in kwargs:
-                    _validate_uuid(kwargs[name], name)
-
-            # Validate positional arguments
-            for i, arg in enumerate(args):
-                if i < len(param_list) and param_list[i] in param_names:
-                    _validate_uuid(arg, param_list[i])
-
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-# ============================================================================
-# Pydantic models for tool arguments
-# ============================================================================
-
-
-class ListLifeAreasArgs(BaseModel):
-    """Arguments for listing life areas."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-
-
-class GetLifeAreaArgs(BaseModel):
-    """Arguments for getting a single life area."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    area_id: str = Field(..., description="UUID of the life area to fetch")
-
-
-class CreateLifeAreaArgs(BaseModel):
-    """Arguments for creating a life area."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    title: str = Field(..., description="Title/name for the new life area")
-    parent_id: str | None = Field(
-        None,
-        description="Optional UUID of parent life area for hierarchical organization",
-    )
-
-
-class DeleteLifeAreaArgs(BaseModel):
-    """Arguments for deleting a life area."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    area_id: str = Field(..., description="UUID of the life area to delete")
-
-
-class ListCriteriaArgs(BaseModel):
-    """Arguments for listing criteria."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    area_id: str = Field(
-        ...,
-        description="UUID of the life area. Use 'list_life_areas' first if you don't have the ID.",
-    )
-
-
-class CreateCriteriaArgs(BaseModel):
-    """Arguments for creating a criteria item."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    area_id: str = Field(
-        ...,
-        description="UUID of the life area. Call 'list_life_areas' to get available area IDs, then extract the 'id' field from the response.",
-    )
-    title: str = Field(..., description="Title/name for the new criteria item")
-
-
-class DeleteCriteriaArgs(BaseModel):
-    """Arguments for deleting a criteria item."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    criteria_id: str = Field(..., description="UUID of the criteria item to delete")
-
-
-class SetCurrentAreaArgs(BaseModel):
-    """Arguments for setting the current area for interview."""
-
-    user_id: str = Field(
-        ..., description="UUID of the user (provided in system message)"
-    )
-    area_id: str = Field(
-        ...,
-        description="UUID of the life area to set as current for interview",
-    )
-
-
-# ============================================================================
-# Tool execution
-# ============================================================================
 
 
 async def call_tool(tool_call: ToolCall, conn: sqlite3.Connection | None = None):
@@ -164,116 +38,10 @@ async def call_tool(tool_call: ToolCall, conn: sqlite3.Connection | None = None)
         extra={
             "tool_name": tool_name,
             "arg_keys": list(tool_args.keys()),
-            "tool_args": tool_args,  # Log full argument values for debugging
+            "tool_args": tool_args,
         },
     )
     return tool_fn(**tool_args, conn=conn)
-
-
-class LifeAreaMethods:
-    @staticmethod
-    def list(user_id: str, conn: sqlite3.Connection | None = None) -> list[db.LifeArea]:
-        u_id = _str_to_uuid(user_id)
-        return [
-            obj for obj in db.LifeAreaManager.list(conn=conn) if obj.user_id == u_id
-        ]
-
-    @staticmethod
-    def get(
-        user_id: str, area_id: str, conn: sqlite3.Connection | None = None
-    ) -> db.LifeArea:
-        u_id = _str_to_uuid(user_id)
-        a_id = _str_to_uuid(area_id)
-
-        if u_id is None or a_id is None:
-            raise KeyError("user_id and area_id are required")
-
-        area = db.LifeAreaManager.get_by_id(a_id, conn=conn)
-        if area is None:
-            raise KeyError(f"LifeArea {area_id} not found")
-
-        if area.user_id != u_id:
-            raise KeyError(f"LifeArea {area_id} does not belong to user {user_id}")
-
-        return area
-
-    @staticmethod
-    def create(
-        user_id: str,
-        title: str,
-        parent_id: str | None = None,
-        conn: sqlite3.Connection | None = None,
-    ) -> db.LifeArea:
-        u_id = _str_to_uuid(user_id)
-        p_id = _str_to_uuid(parent_id)
-
-        if u_id is None:
-            raise KeyError("user_id is required")
-
-        area_id = new_id()
-        area = db.LifeArea(id=area_id, title=title, parent_id=p_id, user_id=u_id)
-        db.LifeAreaManager.create(area_id, area, conn=conn)
-        return area
-
-    @staticmethod
-    def delete(
-        user_id: str, area_id: str, conn: sqlite3.Connection | None = None
-    ) -> None:
-        u_id = _str_to_uuid(user_id)
-        a_id = _str_to_uuid(area_id)
-
-        if u_id is None or a_id is None:
-            raise KeyError("user_id and area_id are required")
-
-        area = db.LifeAreaManager.get_by_id(a_id, conn=conn)
-        if area is None:
-            raise KeyError(f"LifeArea {area_id} not found")
-        if area.user_id != u_id:
-            raise KeyError(f"LifeArea {area_id} does not belong to user {user_id}")
-
-        db.LifeAreaManager.delete(a_id, conn=conn)
-
-
-class CriteriaMethods:
-    @staticmethod
-    def list(
-        user_id: str, area_id: str, conn: sqlite3.Connection | None = None
-    ) -> list[db.Criteria]:
-        area = LifeAreaMethods.get(user_id, area_id, conn=conn)
-
-        return [
-            obj for obj in db.CriteriaManager.list(conn=conn) if obj.area_id == area.id
-        ]
-
-    @staticmethod
-    def delete(
-        user_id: str, criteria_id: str, conn: sqlite3.Connection | None = None
-    ) -> None:
-        u_id = _str_to_uuid(user_id)
-        c_id = _str_to_uuid(criteria_id)
-        if u_id is None or c_id is None:
-            raise KeyError("user_id and criteria_id are required")
-        criteria = db.CriteriaManager.get_by_id(c_id, conn=conn)
-        if criteria is None:
-            raise KeyError(f"Criteria {criteria_id} not found")
-        area = LifeAreaMethods.get(user_id, str(criteria.area_id), conn=conn)
-        if area.user_id != u_id:
-            raise KeyError(f"Criteria {criteria_id} does not belong to user {user_id}")
-        db.CriteriaManager.delete(c_id, conn=conn)
-
-    @staticmethod
-    def create(
-        user_id: str,
-        area_id: str,
-        title: str,
-        conn: sqlite3.Connection | None = None,
-    ) -> db.Criteria:
-        area = LifeAreaMethods.get(user_id, area_id, conn=conn)
-
-        criteria_id = new_id()
-        criteria = db.Criteria(id=criteria_id, title=title, area_id=area.id)
-        db.CriteriaManager.create(criteria_id, criteria, conn=conn)
-        return criteria
 
 
 @tool(args_schema=ListLifeAreasArgs)
@@ -325,34 +93,6 @@ def delete_criteria(user_id: str, criteria_id: str) -> None:
 def create_criteria(user_id: str, area_id: str, title: str) -> db.Criteria:
     """Create a criteria item under a life area."""
     return CriteriaMethods.create(user_id, area_id, title)
-
-
-class CurrentAreaMethods:
-    @staticmethod
-    def set_current(
-        user_id: str, area_id: str, conn: sqlite3.Connection | None = None
-    ) -> db.LifeArea:
-        """Set an area as the current area for interview."""
-        # Verify area exists and belongs to user
-        area = LifeAreaMethods.get(user_id, area_id, conn=conn)
-
-        u_id = _str_to_uuid(user_id)
-        if u_id is None:
-            raise KeyError("Invalid user_id")
-
-        # Get existing user and update current_area_id
-        user = db.UsersManager.get_by_id(u_id, conn=conn)
-        if user is None:
-            raise KeyError(f"User {user_id} not found")
-
-        updated_user = db.User(
-            id=user.id,
-            name=user.name,
-            mode=user.mode,
-            current_area_id=area.id,
-        )
-        db.UsersManager.update(u_id, updated_user, conn=conn)
-        return area
 
 
 @tool(args_schema=SetCurrentAreaArgs)
