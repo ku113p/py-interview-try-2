@@ -1,16 +1,26 @@
 """Unit tests for extract_data workflow."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.infrastructure.db import repositories as db
 from src.workflows.subgraphs.extract_data.nodes import (
     CriterionSummary,
     ExtractionResult,
+    KnowledgeExtractionResult,
+    KnowledgeItem,
+    _build_summary_content,
+    extract_knowledge,
     extract_summaries,
     load_area_data,
     save_extracted_data,
+    save_knowledge,
+    save_summary,
+)
+from src.workflows.subgraphs.extract_data.routers import (
+    route_extraction_success,
+    route_has_data,
 )
 from src.workflows.subgraphs.extract_data.state import ExtractDataState
 
@@ -118,50 +128,8 @@ class TestExtractSummaries:
     """Test the extract_summaries function."""
 
     @pytest.mark.asyncio
-    async def test_extract_summaries_empty_criteria(self):
-        """Should return success=False when no criteria."""
-        # Arrange
-        area_id = uuid.uuid4()
-        state = ExtractDataState(
-            area_id=area_id,
-            area_title="Career",
-            criteria_titles=[],
-            messages=["Some message"],
-        )
-        mock_llm = AsyncMock()
-
-        # Act
-        result = await extract_summaries(state, mock_llm)
-
-        # Assert
-        assert result == {"success": False}
-        mock_llm.with_structured_output.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_extract_summaries_empty_messages(self):
-        """Should return success=False when no messages."""
-        # Arrange
-        area_id = uuid.uuid4()
-        state = ExtractDataState(
-            area_id=area_id,
-            area_title="Career",
-            criteria_titles=["Skills"],
-            messages=[],
-        )
-        mock_llm = AsyncMock()
-
-        # Act
-        result = await extract_summaries(state, mock_llm)
-
-        # Assert
-        assert result == {"success": False}
-        mock_llm.with_structured_output.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_extract_summaries_success(self):
         """Should extract summaries successfully."""
-        from unittest.mock import MagicMock
-
         # Arrange
         area_id = uuid.uuid4()
         state = ExtractDataState(
@@ -200,8 +168,6 @@ class TestExtractSummaries:
     @pytest.mark.asyncio
     async def test_extract_summaries_llm_exception(self):
         """Should return success=False when LLM raises exception."""
-        from unittest.mock import MagicMock
-
         # Arrange
         area_id = uuid.uuid4()
         state = ExtractDataState(
@@ -226,49 +192,11 @@ class TestExtractSummaries:
 
 
 class TestSaveExtractedData:
-    """Test the save_extracted_data function."""
-
-    @pytest.mark.asyncio
-    async def test_save_extracted_data_skips_on_failure(self):
-        """Should skip saving when success is False."""
-        # Arrange
-        area_id = uuid.uuid4()
-        state = ExtractDataState(
-            area_id=area_id,
-            success=False,
-            extracted_summary={"Skills": "Summary"},
-        )
-
-        with patch.object(db.ExtractedDataManager, "create") as mock_create:
-            # Act
-            result = await save_extracted_data(state)
-
-        # Assert
-        assert result == {}
-        mock_create.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_save_extracted_data_skips_on_empty_summary(self):
-        """Should skip saving when extracted_summary is empty."""
-        # Arrange
-        area_id = uuid.uuid4()
-        state = ExtractDataState(
-            area_id=area_id,
-            success=True,
-            extracted_summary={},
-        )
-
-        with patch.object(db.ExtractedDataManager, "create") as mock_create:
-            # Act
-            result = await save_extracted_data(state)
-
-        # Assert
-        assert result == {}
-        mock_create.assert_not_called()
+    """Test the save_extracted_data function (deprecated, kept for compatibility)."""
 
     @pytest.mark.asyncio
     async def test_save_extracted_data_success(self):
-        """Should save extracted data to database when successful."""
+        """Should save extracted data to database."""
         # Arrange
         area_id = uuid.uuid4()
         state = ExtractDataState(
@@ -295,3 +223,292 @@ class TestSaveExtractedData:
         assert '"Skills": "Knows Python"' in extracted_data.data
         assert '"Goals": "Become senior"' in extracted_data.data
         assert extracted_data.created_ts > 0
+
+
+class TestRouters:
+    """Test the router functions."""
+
+    def test_route_has_data_returns_end_when_no_criteria(self):
+        """Should return __end__ when criteria_titles is empty."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            criteria_titles=[],
+            messages=["Some message"],
+        )
+        assert route_has_data(state) == "__end__"
+
+    def test_route_has_data_returns_end_when_no_messages(self):
+        """Should return __end__ when messages is empty."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            criteria_titles=["Skills"],
+            messages=[],
+        )
+        assert route_has_data(state) == "__end__"
+
+    def test_route_has_data_returns_extract_summaries_when_data_exists(self):
+        """Should return extract_summaries when both criteria and messages exist."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            criteria_titles=["Skills"],
+            messages=["Some message"],
+        )
+        assert route_has_data(state) == "extract_summaries"
+
+    def test_route_extraction_success_returns_end_when_not_successful(self):
+        """Should return __end__ when success is False."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            success=False,
+            extracted_summary={"Skills": "Summary"},
+        )
+        assert route_extraction_success(state) == "__end__"
+
+    def test_route_extraction_success_returns_end_when_no_summary(self):
+        """Should return __end__ when extracted_summary is empty."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            success=True,
+            extracted_summary={},
+        )
+        assert route_extraction_success(state) == "__end__"
+
+    def test_route_extraction_success_returns_save_summary_when_successful(self):
+        """Should return save_summary when successful with summary."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            success=True,
+            extracted_summary={"Skills": "Summary"},
+        )
+        assert route_extraction_success(state) == "save_summary"
+
+
+class TestBuildSummaryContent:
+    """Test the _build_summary_content helper function."""
+
+    def test_builds_content_from_summaries(self):
+        """Should combine summaries into content string."""
+        extracted = {
+            "Skills": "Knows Python and JavaScript",
+            "Goals": "Wants to become tech lead",
+        }
+        result = _build_summary_content(extracted)
+        assert "Skills: Knows Python and JavaScript" in result
+        assert "Goals: Wants to become tech lead" in result
+
+    def test_excludes_no_response_entries(self):
+        """Should exclude 'No response provided' entries."""
+        extracted = {
+            "Skills": "Knows Python",
+            "Goals": "No response provided",
+        }
+        result = _build_summary_content(extracted)
+        assert "Skills: Knows Python" in result
+        assert "Goals" not in result
+
+    def test_returns_empty_for_all_no_response(self):
+        """Should return empty string when all are no response."""
+        extracted = {
+            "Skills": "No response provided",
+            "Goals": "",
+        }
+        result = _build_summary_content(extracted)
+        assert result == ""
+
+
+class TestSaveSummary:
+    """Test the save_summary function."""
+
+    @pytest.mark.asyncio
+    async def test_save_summary_skips_when_no_content(self):
+        """Should skip saving when no meaningful content."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            success=True,
+            extracted_summary={"Skills": "No response provided"},
+        )
+
+        with (
+            patch("src.infrastructure.embeddings.get_embedding_client") as mock_embed,
+            patch.object(db.AreaSummariesManager, "create") as mock_create,
+        ):
+            result = await save_summary(state)
+
+        assert result == {"summary_content": ""}
+        mock_embed.assert_not_called()
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_summary_success(self):
+        """Should save summary with embedding."""
+        area_id = uuid.uuid4()
+        state = ExtractDataState(
+            area_id=area_id,
+            success=True,
+            extracted_summary={"Skills": "Knows Python"},
+        )
+
+        mock_embed_client = AsyncMock()
+        mock_embed_client.aembed_query.return_value = [0.1, 0.2, 0.3]
+
+        with (
+            patch(
+                "src.infrastructure.embeddings.get_embedding_client",
+                return_value=mock_embed_client,
+            ),
+            patch.object(db.AreaSummariesManager, "create") as mock_create,
+        ):
+            result = await save_summary(state)
+
+        assert result["summary_content"] == "Skills: Knows Python"
+        mock_embed_client.aembed_query.assert_called_once()
+        mock_create.assert_called_once()
+
+        # Verify the data passed to create
+        call_args = mock_create.call_args
+        summary = call_args[0][1]
+        assert summary.area_id == area_id
+        assert summary.content == "Skills: Knows Python"
+        assert summary.vector == [0.1, 0.2, 0.3]
+
+
+class TestExtractKnowledge:
+    """Test the extract_knowledge function."""
+
+    @pytest.mark.asyncio
+    async def test_extract_knowledge_skips_when_no_content(self):
+        """Should skip extraction when no summary content."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            summary_content="",
+        )
+        mock_llm = MagicMock()
+
+        result = await extract_knowledge(state, mock_llm)
+
+        assert result == {"extracted_knowledge": []}
+        mock_llm.with_structured_output.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_extract_knowledge_success(self):
+        """Should extract knowledge items from summary."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            area_title="Career",
+            summary_content="Skills: Python programming, JavaScript",
+        )
+
+        mock_result = KnowledgeExtractionResult(
+            items=[
+                KnowledgeItem(
+                    content="Python programming", kind="skill", confidence=0.9
+                ),
+                KnowledgeItem(content="JavaScript", kind="skill", confidence=0.8),
+            ]
+        )
+
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke.return_value = mock_result
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        result = await extract_knowledge(state, mock_llm)
+
+        assert len(result["extracted_knowledge"]) == 2
+        assert result["extracted_knowledge"][0]["content"] == "Python programming"
+        assert result["extracted_knowledge"][0]["kind"] == "skill"
+
+    @pytest.mark.asyncio
+    async def test_extract_knowledge_handles_exception(self):
+        """Should return empty list on LLM exception."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            summary_content="Some content",
+        )
+
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke.side_effect = Exception("LLM error")
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        result = await extract_knowledge(state, mock_llm)
+
+        assert result == {"extracted_knowledge": []}
+
+
+class TestSaveKnowledge:
+    """Test the save_knowledge function."""
+
+    @pytest.mark.asyncio
+    async def test_save_knowledge_skips_when_no_user_id(self):
+        """Should skip saving when no user_id."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            user_id=None,
+            extracted_knowledge=[
+                {"content": "Python", "kind": "skill", "confidence": 0.9}
+            ],
+        )
+
+        with patch.object(db.UserKnowledgeManager, "create") as mock_create:
+            result = await save_knowledge(state)
+
+        assert result == {}
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_knowledge_skips_when_no_knowledge(self):
+        """Should skip saving when no extracted knowledge."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            extracted_knowledge=[],
+        )
+
+        with patch.object(db.UserKnowledgeManager, "create") as mock_create:
+            result = await save_knowledge(state)
+
+        assert result == {}
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_knowledge_success(self, temp_db):
+        """Should save knowledge items and links."""
+        area_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        state = ExtractDataState(
+            area_id=area_id,
+            user_id=user_id,
+            extracted_knowledge=[
+                {"content": "Python", "kind": "skill", "confidence": 0.9},
+                {"content": "Works at Google", "kind": "fact", "confidence": 1.0},
+            ],
+        )
+
+        # Act
+        result = await save_knowledge(state)
+
+        # Assert
+        assert result == {}
+
+        # Verify knowledge items were saved
+        all_knowledge = db.UserKnowledgeManager.list()
+        assert len(all_knowledge) == 2
+
+        python_knowledge = next(k for k in all_knowledge if k.content == "Python")
+        assert python_knowledge.kind == "skill"
+        assert python_knowledge.confidence == 0.9
+
+        google_knowledge = next(
+            k for k in all_knowledge if k.content == "Works at Google"
+        )
+        assert google_knowledge.kind == "fact"
+        assert google_knowledge.confidence == 1.0
+
+        # Verify links were created
+        links = db.UserKnowledgeAreasManager.list_by_user(user_id)
+        assert len(links) == 2
+        assert all(link.user_id == user_id for link in links)
+        assert all(link.area_id == area_id for link in links)
