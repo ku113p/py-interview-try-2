@@ -1,19 +1,13 @@
-import asyncio
 import json
 import logging
-import uuid
-from typing import Annotated
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_openai import ChatOpenAI
-from langgraph.graph.message import add_messages
-from pydantic import BaseModel, ConfigDict
 
-from src.domain import ExtractDataTask, User
+from src.application.state import State
 from src.infrastructure.db import repositories as db
 from src.shared.ids import new_id
 from src.shared.interview_models import CriteriaAnalysis
-from src.shared.message_buckets import MessageBuckets, merge_message_buckets
 from src.shared.timestamp import get_timestamp
 from src.shared.utils.content import normalize_content
 
@@ -34,19 +28,6 @@ def _format_qa_data(messages: list[BaseMessage]) -> str:
         return f"AI: {ai_content}\nUser: {user_content}"
 
     return f"User: {user_content}"
-
-
-class State(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    user: User
-    area_id: uuid.UUID
-    extract_data_tasks: asyncio.Queue[ExtractDataTask]
-    messages: Annotated[list[BaseMessage], add_messages]
-    messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
-    success: bool | None = None
-    was_covered: bool
-    criteria_analysis: CriteriaAnalysis | None = None
 
 
 async def interview_analysis(state: State, llm: ChatOpenAI):
@@ -72,10 +53,6 @@ async def interview_analysis(state: State, llm: ChatOpenAI):
 
     # Analyze coverage (structured output)
     analysis = await _analyze_coverage(area_msgs, area_criteria, llm)
-
-    if analysis.all_covered:
-        task = ExtractDataTask(area_id=area_id, user_id=state.user.id)
-        await state.extract_data_tasks.put(task)
 
     logger.info(
         "Interview criteria analyzed",
