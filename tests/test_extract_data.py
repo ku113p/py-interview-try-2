@@ -14,7 +14,6 @@ from src.workflows.subgraphs.extract_data.nodes import (
     extract_knowledge,
     extract_summaries,
     load_area_data,
-    save_extracted_data,
     save_knowledge,
     save_summary,
 )
@@ -189,40 +188,6 @@ class TestExtractSummaries:
 
         # Assert
         assert result == {"success": False}
-
-
-class TestSaveExtractedData:
-    """Test the save_extracted_data function (deprecated, kept for compatibility)."""
-
-    @pytest.mark.asyncio
-    async def test_save_extracted_data_success(self):
-        """Should save extracted data to database."""
-        # Arrange
-        area_id = uuid.uuid4()
-        state = ExtractDataState(
-            area_id=area_id,
-            success=True,
-            extracted_summary={"Skills": "Knows Python", "Goals": "Become senior"},
-        )
-
-        with patch.object(db.ExtractedDataManager, "create") as mock_create:
-            # Act
-            result = await save_extracted_data(state)
-
-        # Assert
-        assert result == {}
-        mock_create.assert_called_once()
-
-        # Verify the data passed to create
-        call_args = mock_create.call_args
-        data_id = call_args[0][0]
-        extracted_data = call_args[0][1]
-
-        assert isinstance(data_id, uuid.UUID)
-        assert extracted_data.area_id == area_id
-        assert '"Skills": "Knows Python"' in extracted_data.data
-        assert '"Goals": "Become senior"' in extracted_data.data
-        assert extracted_data.created_ts > 0
 
 
 class TestRouters:
@@ -436,6 +401,44 @@ class TestExtractKnowledge:
         result = await extract_knowledge(state, mock_llm)
 
         assert result == {"extracted_knowledge": []}
+
+    @pytest.mark.asyncio
+    async def test_extract_knowledge_fallback_to_extracted_summary(self):
+        """Should compute summary_content from extracted_summary when empty."""
+        state = ExtractDataState(
+            area_id=uuid.uuid4(),
+            area_title="Career",
+            summary_content="",  # Empty - fallback should kick in
+            extracted_summary={"Skills": "Python programming", "Goals": "Tech lead"},
+        )
+
+        mock_result = KnowledgeExtractionResult(
+            items=[
+                KnowledgeItem(
+                    content="Python programming", kind="skill", confidence=0.9
+                ),
+            ]
+        )
+
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke.return_value = mock_result
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+
+        result = await extract_knowledge(state, mock_llm)
+
+        # Verify LLM was called (fallback worked)
+        mock_structured_llm.ainvoke.assert_called_once()
+
+        # Verify the user prompt contains computed content
+        call_args = mock_structured_llm.ainvoke.call_args[0][0]
+        user_content = call_args[1]["content"]
+        assert "Skills: Python programming" in user_content
+        assert "Goals: Tech lead" in user_content
+
+        assert len(result["extracted_knowledge"]) == 1
+        assert result["extracted_knowledge"][0]["content"] == "Python programming"
 
 
 class TestSaveKnowledge:
