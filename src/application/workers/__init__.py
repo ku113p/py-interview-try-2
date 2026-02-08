@@ -1,10 +1,29 @@
 """Worker architecture for async message processing."""
 
-from src.application.workers.runtime import Runtime
-from src.application.workers.workers import Channels, ExtractTask
+from src.application.workers.channels import (
+    ChannelRequest,
+    ChannelResponse,
+    Channels,
+    ExtractTask,
+)
+from src.application.workers.cli_transport import (
+    ensure_user,
+    parse_user_id,
+    run_cli_pool,
+)
+from src.application.workers.extract_worker import run_extract_pool
+from src.application.workers.graph_worker import run_graph_pool
+from src.application.workers.pool import run_worker_pool
 
 __all__ = [
+    "ChannelRequest",
+    "ChannelResponse",
     "Channels",
     "ExtractTask",
-    "Runtime",
+    "ensure_user",
+    "parse_user_id",
+    "run_cli_pool",
+    "run_extract_pool",
+    "run_graph_pool",
+    "run_worker_pool",
 ]

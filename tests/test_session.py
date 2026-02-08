@@ -1,7 +1,7 @@
-"""Unit tests for session helpers."""
+"""Unit tests for CLI transport helpers."""
 
-from src.adapters.cli.session import ensure_user
-from src.application.workers.workers import _build_state
+from src.application.workers.cli_transport import ensure_user
+from src.application.workers.graph_worker import _build_state
 from src.domain import ClientMessage, User
 from src.domain.models import InputMode
 from src.infrastructure.db import repositories as db

@@ -1,0 +1,42 @@
+"""Channel types for inter-worker communication."""
+
+import asyncio
+import uuid
+from dataclasses import dataclass, field
+
+from src.domain import ClientMessage
+
+
+@dataclass
+class ChannelRequest:
+    """Envelope for messages from transport to graph workers."""
+
+    correlation_id: uuid.UUID
+    user_id: uuid.UUID
+    payload: ClientMessage
+
+
+@dataclass
+class ChannelResponse:
+    """Envelope for responses from graph workers to transport."""
+
+    correlation_id: uuid.UUID
+    payload: str
+
+
+@dataclass
+class ExtractTask:
+    """Task to extract data from an area for a user."""
+
+    area_id: uuid.UUID
+    user_id: uuid.UUID
+
+
+@dataclass
+class Channels:
+    """Shared communication channels between all worker pools."""
+
+    requests: asyncio.Queue[ChannelRequest] = field(default_factory=asyncio.Queue)
+    responses: asyncio.Queue[ChannelResponse] = field(default_factory=asyncio.Queue)
+    extract: asyncio.Queue[ExtractTask] = field(default_factory=asyncio.Queue)
+    shutdown: asyncio.Event = field(default_factory=asyncio.Event)
