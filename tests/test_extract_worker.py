@@ -5,16 +5,13 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.application.workers.runtime import _run_worker_pool
-from src.application.workers.workers import (
-    Channels,
-    ExtractTask,
-    create_extract_worker,
-)
+from src.application.workers.channels import Channels, ExtractTask
+from src.application.workers.extract_worker import run_extract_pool
+from src.application.workers.pool import run_worker_pool
 
 
-class TestCreateExtractWorker:
-    """Test the create_extract_worker function."""
+class TestExtractWorker:
+    """Test the extract worker functionality."""
 
     @pytest.mark.asyncio
     async def test_worker_processes_task(self):
@@ -24,9 +21,9 @@ class TestCreateExtractWorker:
         await channels.extract.put(task)
 
         with (
-            patch("src.application.workers.workers.NewAI") as mock_ai,
+            patch("src.application.workers.extract_worker.NewAI") as mock_ai,
             patch(
-                "src.application.workers.workers.build_knowledge_extraction_graph"
+                "src.application.workers.extract_worker.build_knowledge_extraction_graph"
             ) as mock_build,
         ):
             mock_ai.return_value.build.return_value = MagicMock()
@@ -34,17 +31,14 @@ class TestCreateExtractWorker:
             mock_graph.ainvoke = AsyncMock()
             mock_build.return_value = mock_graph
 
-            worker_fn = create_extract_worker(channels)
-            worker = asyncio.create_task(worker_fn(0))
+            pool = asyncio.create_task(run_extract_pool(channels))
 
             # Wait for task to be processed
             await channels.extract.join()
 
-            worker.cancel()
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
+            # Signal shutdown and wait for pool to stop
+            channels.shutdown.set()
+            await asyncio.wait_for(pool, timeout=2.0)
 
             mock_graph.ainvoke.assert_called_once()
 
@@ -58,9 +52,9 @@ class TestCreateExtractWorker:
         await channels.extract.put(task2)
 
         with (
-            patch("src.application.workers.workers.NewAI") as mock_ai,
+            patch("src.application.workers.extract_worker.NewAI") as mock_ai,
             patch(
-                "src.application.workers.workers.build_knowledge_extraction_graph"
+                "src.application.workers.extract_worker.build_knowledge_extraction_graph"
             ) as mock_build,
         ):
             mock_ai.return_value.build.return_value = MagicMock()
@@ -70,16 +64,12 @@ class TestCreateExtractWorker:
             )
             mock_build.return_value = mock_graph
 
-            worker_fn = create_extract_worker(channels)
-            worker = asyncio.create_task(worker_fn(0))
+            pool = asyncio.create_task(run_extract_pool(channels))
 
             await channels.extract.join()
 
-            worker.cancel()
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
+            channels.shutdown.set()
+            await asyncio.wait_for(pool, timeout=2.0)
 
             assert mock_graph.ainvoke.call_count == 2
 
@@ -92,9 +82,9 @@ class TestCreateExtractWorker:
         await channels.extract.put(ExtractTask(area_id=area_id, user_id=user_id))
 
         with (
-            patch("src.application.workers.workers.NewAI") as mock_ai,
+            patch("src.application.workers.extract_worker.NewAI") as mock_ai,
             patch(
-                "src.application.workers.workers.build_knowledge_extraction_graph"
+                "src.application.workers.extract_worker.build_knowledge_extraction_graph"
             ) as mock_build,
         ):
             mock_ai.return_value.build.return_value = MagicMock()
@@ -102,11 +92,10 @@ class TestCreateExtractWorker:
             mock_graph.ainvoke = AsyncMock()
             mock_build.return_value = mock_graph
 
-            worker = asyncio.create_task(create_extract_worker(channels)(0))
+            pool = asyncio.create_task(run_extract_pool(channels))
             await channels.extract.join()
-            worker.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await worker
+            channels.shutdown.set()
+            await asyncio.wait_for(pool, timeout=2.0)
 
             call_args = mock_graph.ainvoke.call_args[0][0]
             assert call_args.area_id == area_id
@@ -120,17 +109,17 @@ class TestWorkerPool:
     async def test_pool_spawns_multiple_workers(self):
         """Should spawn multiple workers that can process tasks concurrently."""
         processed = []
+        shutdown = asyncio.Event()
 
         async def mock_worker(worker_id: int) -> None:
             processed.append(worker_id)
-            await asyncio.sleep(0.01)
-            raise asyncio.CancelledError()
+            while not shutdown.is_set():
+                await asyncio.sleep(0.01)
 
-        pool = asyncio.create_task(_run_worker_pool("test", mock_worker, 3))
+        pool = asyncio.create_task(run_worker_pool("test", mock_worker, 3, shutdown))
         await asyncio.sleep(0.05)
 
-        pool.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await pool
+        shutdown.set()
+        await asyncio.wait_for(pool, timeout=2.0)
 
         assert sorted(processed) == [0, 1, 2]

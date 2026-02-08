@@ -74,21 +74,59 @@ Post-interview knowledge extraction (triggered when all criteria covered).
 
 ## Worker Architecture
 
+Flat peer-based architecture where all worker pools communicate through shared channels:
+
 ```
-CLI Adapter
-    ↓
-Runtime (context manager)
-    ├── Graph Worker Pool (size: 2)
-    │   └── Processes ClientMessages through main graph
-    │
-    └── Extract Worker Pool (size: 2)
-        └── Processes ExtractTask after criteria coverage
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Transport  │    │    Graph    │    │   Extract   │
+│   Workers   │◄──►│   Workers   │◄──►│   Workers   │
+└─────────────┘    └─────────────┘    └─────────────┘
+       │                  │                  │
+       └──────────────────┴──────────────────┘
+                    Channels (shared)
 ```
 
-Communication via `asyncio.Queue` channels:
-- `client_message`: CLI → Graph Workers
-- `client_response`: Graph Workers → CLI
-- `extract`: Graph Workers → Extract Workers
+### Worker Pools
+
+| Pool | Size | Purpose |
+|------|------|---------|
+| Transport (CLI) | 1 | Handles stdin/stdout, user creation |
+| Graph | 2 | Processes messages through main graph |
+| Extract | 2 | Knowledge extraction from covered areas |
+
+### Channel Message Types
+
+```python
+ChannelRequest   # transport → graph (correlation_id, user_id, payload)
+ChannelResponse  # graph → transport (correlation_id, payload)
+ExtractTask      # graph → extract (area_id, user_id)
+```
+
+### Communication Flow
+
+1. **Request/Response** (via correlation IDs):
+   - Transport creates `ChannelRequest` with unique `correlation_id`
+   - Graph worker processes, sends `ChannelResponse` with same `correlation_id`
+   - Transport matches responses to pending requests by ID
+
+2. **Background Extraction**:
+   - Graph worker queues `ExtractTask` when criteria covered
+   - Extract workers process independently (fire-and-forget)
+
+3. **Graceful Shutdown**:
+   - Shared `shutdown` event signals all pools
+   - Any pool can trigger (CLI `/exit`, SIGINT, etc.)
+   - Workers check shutdown flag on each iteration
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `channels.py` | Channel types and Channels dataclass |
+| `cli_transport.py` | CLI transport pool |
+| `graph_worker.py` | Graph worker pool |
+| `extract_worker.py` | Extract worker pool |
+| `pool.py` | Generic `run_worker_pool()` utility |
 
 ## Database Schema
 
@@ -144,4 +182,6 @@ Configured in `src/config/settings.py`.
 2. **Transaction Safety**: Tool calls wrapped in DB transactions
 3. **History Filtering**: ToolMessages filtered before chat LLM calls
 4. **Temp File Cleanup**: Media files cleaned in finally blocks
-5. **Graceful Shutdown**: Worker pools handle cancellation properly
+5. **Graceful Shutdown**: Shared event signals all worker pools
+6. **Correlation IDs**: Request/response matching for concurrent transports
+7. **Peer Workers**: All pools are equal peers, no ownership hierarchy
