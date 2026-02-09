@@ -1,6 +1,6 @@
 # Database infrastructure module
 
-from .connection import get_connection, transaction
+from .connection import execute_with_retry, get_connection, transaction
 from .managers import (
     Criteria,
     CriteriaManager,
@@ -16,6 +16,7 @@ from .managers import (
 from .schema import init_schema_async
 
 __all__ = [
+    "execute_with_retry",
     "get_connection",
     "transaction",
     "User",
