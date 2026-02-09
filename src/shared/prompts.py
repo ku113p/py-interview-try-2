@@ -11,22 +11,22 @@ Keep prompts here for easy review, comparison, and maintenance.
 PROMPT_EXTRACT_TARGET_TEMPLATE = """\
 You are a routing classifier. Analyze the user's message and determine which module should handle it.
 
-**Return 'areas' when the user wants to:**
+**Return 'manage_areas' when the user wants to:**
 - Manage life areas (also called topics) or their evaluation criteria
 - Use any of these area management operations:
 {areas_tools_desc}
 - Ask questions about criteria setup (e.g., 'what criteria should we use?', 'which criteria can we create?')
 - Discuss area/criteria configuration or management
 
-**Return 'interview' when the user wants to:**
+**Return 'conduct_interview' when the user wants to:**
 - Share experiences, stories, or information about a topic
 - Answer questions about their background or skills
 - Have a conversation to evaluate their knowledge/experience
 - Respond to interview questions
 
 **Key distinction:**
-- 'areas' = managing the structure (what to evaluate, setup, configuration)
-- 'interview' = the actual conversation (being evaluated, sharing experiences)
+- 'manage_areas' = managing the structure (what to evaluate, setup, configuration)
+- 'conduct_interview' = the actual conversation (being evaluated, sharing experiences)
 
 Classify based on message intent only, ignoring conversation history."""
 

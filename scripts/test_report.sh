@@ -43,6 +43,11 @@ SUM_MAX=$(jq -r '.expected.summaries_max' "$CASE_FILE")
 KNOW_MIN=$(jq -r '.expected.knowledge_min' "$CASE_FILE")
 KNOW_MAX=$(jq -r '.expected.knowledge_max' "$CASE_FILE")
 
+# Use /exit_10 if test expects knowledge or summaries (wait for background tasks)
+if [ "$KNOW_MIN" -gt 0 ] || [ "$SUM_MIN" -gt 0 ]; then
+    INPUTS="${INPUTS//\/exit//exit_10}"
+fi
+
 echo "════════════════════════════════════════════════════════════════"
 echo "TEST: $CASE_NAME"
 echo "FILE: $CASE_FILE"
@@ -66,9 +71,9 @@ for RUN in $(seq 1 $REPEAT); do
     echo ""
 
     # Run test, capture stderr (logs) to temp file, show stdout
+    # Tests using /exit_N will wait N seconds for background tasks
     LOGFILE="/tmp/test_log_$USER_ID.json"
-    echo "$INPUTS" | timeout 120 uv run python main.py --user-id "$USER_ID" 2>"$LOGFILE" || true
-    sleep 3
+    echo "$INPUTS" | timeout 180 uv run python main.py --user-id "$USER_ID" 2>"$LOGFILE" || true
 
     # Show key log events
     echo ""
@@ -132,7 +137,7 @@ for RUN in $(seq 1 $REPEAT); do
 
     echo ""
     echo "Knowledge:"
-    sqlite3 -header -column interview.db "SELECT id, area FROM user_knowledge_areas WHERE user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
+    sqlite3 -header -column interview.db "SELECT uk.id, uk.description, uk.kind FROM user_knowledge uk JOIN user_knowledge_areas uka ON uk.id = uka.knowledge_id WHERE uka.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     rm -f "$LOGFILE"
 done
