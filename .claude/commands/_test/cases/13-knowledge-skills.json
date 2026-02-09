@@ -1,28 +1,25 @@
 {
   "name": "Knowledge - Skill Extraction",
-  "description": "Test extraction of technical and soft skills",
+  "description": "Test extraction of technical skills from interview answers",
   "inputs": [
-    "Track my professional skills",
+    "Create area for Technical Skills and set it as current",
     "yes",
-    "yes",
-    "I'm an expert in Python with 7 years experience. I lead a team of 5 engineers.",
-    "I'm certified in AWS Solutions Architect and Kubernetes Administrator.",
-    "I speak English fluently, Spanish at intermediate level, and basic Mandarin.",
-    "My soft skills include conflict resolution, stakeholder management, and strategic planning.",
+    "Add criterion for Python experience",
+    "I've been working with Python for 7 years. I use it for data analysis with pandas and for building APIs with FastAPI. I also lead a team of 5 engineers.",
     "/exit"
   ],
   "expected": {
     "life_areas": 1,
     "criteria_min": 1,
-    "criteria_max": 4,
+    "criteria_max": 2,
     "summaries_min": 0,
     "summaries_max": 1,
-    "knowledge_min": 5,
-    "knowledge_max": 15
+    "knowledge_min": 2,
+    "knowledge_max": 8
   },
   "typical": {
-    "criteria": [2, 3],
+    "criteria": [1, 1],
     "summaries": [0, 1],
-    "knowledge": [8, 12]
+    "knowledge": [3, 5]
   }
 }

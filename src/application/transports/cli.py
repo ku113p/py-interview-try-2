@@ -16,8 +16,9 @@ MAX_MESSAGE_LENGTH = 10_000
 MIN_PRINTABLE_CHAR = 32
 
 HELP_TEXT = """Commands:
-  /help  Show this help
-  /exit  Exit the session
+  /help      Show this help
+  /exit      Exit immediately
+  /exit_N    Wait N seconds then exit (e.g., /exit_5)
 
 Type your message and press Enter to continue.
 """
@@ -90,19 +91,36 @@ async def _send_request(
     return await future
 
 
+MAX_EXIT_WAIT = 120  # Maximum wait time for /exit_N
+
+
+def _parse_exit_command(text: str) -> int | None:
+    """Parse /exit or /exit_N command. Returns wait seconds or None if not exit."""
+    if text == "/exit":
+        return 0
+    if text.startswith("/exit_"):
+        try:
+            return min(int(text[6:]), MAX_EXIT_WAIT)
+        except ValueError:
+            return None
+    return None
+
+
 async def _handle_user_input(
     text: str,
     user_id: uuid.UUID,
     channels: Channels,
     pending: dict[uuid.UUID, asyncio.Future],
-) -> bool:
-    """Handle a single user input. Returns True if should exit."""
+) -> tuple[str, int]:
+    """Handle user input. Returns (action, wait_seconds)."""
     if not text or text == "/help":
         if text == "/help":
             print(HELP_TEXT)
-        return False
-    if text == "/exit":
-        return True
+        return ("continue", 0)
+
+    wait_seconds = _parse_exit_command(text)
+    if wait_seconds is not None:
+        return ("exit", wait_seconds)
 
     normalized = unicodedata.normalize("NFKC", text).strip()
     if error := _validate_user_input(normalized):
@@ -110,20 +128,31 @@ async def _handle_user_input(
         print(f"Error: {error}")
     else:
         print(await _send_request(normalized, user_id, channels, pending))
-    return False
+    return ("continue", 0)
+
+
+async def _read_and_process_input(
+    channels: Channels, user_id: uuid.UUID, pending: dict[uuid.UUID, asyncio.Future]
+) -> tuple[str, int]:
+    """Read one input line and process it. Returns (action, wait_seconds)."""
+    loop = asyncio.get_event_loop()
+    try:
+        text = await loop.run_in_executor(None, input, "> ")
+    except EOFError:
+        return ("exit", 0)
+    return await _handle_user_input(text.strip(), user_id, channels, pending)
 
 
 async def _run_input_loop(
     channels: Channels, user_id: uuid.UUID, pending: dict[uuid.UUID, asyncio.Future]
 ) -> None:
     """Read input, send requests, await responses."""
-    loop = asyncio.get_event_loop()
     while not channels.shutdown.is_set():
-        try:
-            text = await loop.run_in_executor(None, input, "> ")
-        except EOFError:
-            break
-        if await _handle_user_input(text.strip(), user_id, channels, pending):
+        action, wait_seconds = await _read_and_process_input(channels, user_id, pending)
+        if action == "exit":
+            if wait_seconds > 0:
+                print(f"Waiting {wait_seconds}s for background tasks...")
+                await asyncio.sleep(wait_seconds)
             break
     channels.shutdown.set()
 
