@@ -180,6 +180,31 @@ async with transaction() as conn:
     # Commits on success, rolls back on exception
 ```
 
+**Retry logic for write contention:**
+
+Under parallel load, SQLite write transactions can fail with `SQLITE_BUSY` or `database is locked` errors despite the `busy_timeout` setting. The `transaction()` context manager automatically retries commits using exponential backoff:
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Max retries | 5 | Maximum retry attempts |
+| Initial wait | 100ms | First retry delay |
+| Max wait | 2s | Maximum retry delay |
+| Jitter | 10% | Random variance to prevent thundering herd |
+
+The `execute_with_retry()` utility in `connection.py` handles this using the `tenacity` library. It only retries on `sqlite3.OperationalError` containing "locked" or "busy" in the message.
+
+**Cross-process file locking:**
+
+Both `get_connection()` and `transaction()` use file-based locking (`fcntl.flock`) to serialize database access across processes. This prevents concurrent writes from conflicting:
+
+- Lock file: `{db_path}.lock` (e.g., `interview.db.lock`)
+- Lock type: Exclusive (`LOCK_EX`) - only one holder at a time
+- Blocking: Callers wait until lock is available
+- Cleanup: Lock file is deleted after release
+- Platform: Linux/Unix only (`fcntl` module)
+
+The `transaction()` context manager also uses an in-process `asyncio.Lock` for faster serialization when multiple coroutines run in the same process.
+
 All ORM methods (`get_by_id`, `list`, `create`, `update`, `delete`) are async.
 
 ## State Models

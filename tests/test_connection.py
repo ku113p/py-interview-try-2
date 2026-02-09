@@ -1,8 +1,16 @@
 """Unit tests for database connection and transaction handling."""
 
+import sqlite3
+from unittest.mock import AsyncMock
+
 import pytest
 from src.infrastructure.db import managers as db
-from src.infrastructure.db.connection import get_connection, transaction
+from src.infrastructure.db.connection import (
+    _is_sqlite_busy_error,
+    execute_with_retry,
+    get_connection,
+    transaction,
+)
 from src.shared.ids import new_id
 
 
@@ -124,3 +132,98 @@ class TestGetConnection:
             cursor = await conn.execute("PRAGMA busy_timeout")
             row = await cursor.fetchone()
             assert row[0] == 30000
+
+
+class TestIsSqliteBusyError:
+    """Test the _is_sqlite_busy_error helper function."""
+
+    def test_returns_true_for_locked_error(self):
+        """Should return True for 'database is locked' error."""
+        exc = sqlite3.OperationalError("database is locked")
+        assert _is_sqlite_busy_error(exc) is True
+
+    def test_returns_true_for_busy_error(self):
+        """Should return True for 'database is busy' error."""
+        exc = sqlite3.OperationalError("database is busy")
+        assert _is_sqlite_busy_error(exc) is True
+
+    def test_returns_true_case_insensitive(self):
+        """Should match regardless of case."""
+        exc = sqlite3.OperationalError("DATABASE IS LOCKED")
+        assert _is_sqlite_busy_error(exc) is True
+
+    def test_returns_false_for_other_operational_error(self):
+        """Should return False for non-busy/locked OperationalError."""
+        exc = sqlite3.OperationalError("no such table: foo")
+        assert _is_sqlite_busy_error(exc) is False
+
+    def test_returns_false_for_non_operational_error(self):
+        """Should return False for other exception types."""
+        assert _is_sqlite_busy_error(ValueError("database is locked")) is False
+        assert _is_sqlite_busy_error(RuntimeError("busy")) is False
+
+
+class TestExecuteWithRetry:
+    """Test the execute_with_retry function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_result_on_success(self):
+        """Should return result when function succeeds."""
+        mock_fn = AsyncMock(return_value="success")
+        result = await execute_with_retry(mock_fn)
+        assert result == "success"
+        mock_fn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_busy_error(self):
+        """Should retry on BUSY error and succeed on subsequent attempt."""
+        mock_fn = AsyncMock(
+            side_effect=[
+                sqlite3.OperationalError("database is locked"),
+                "success",
+            ]
+        )
+        result = await execute_with_retry(mock_fn, initial_wait=0.01, max_wait=0.02)
+        assert result == "success"
+        assert mock_fn.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_multiple_times(self):
+        """Should retry multiple times before succeeding."""
+        mock_fn = AsyncMock(
+            side_effect=[
+                sqlite3.OperationalError("database is locked"),
+                sqlite3.OperationalError("database is busy"),
+                sqlite3.OperationalError("database is locked"),
+                "success",
+            ]
+        )
+        result = await execute_with_retry(mock_fn, initial_wait=0.01, max_wait=0.02)
+        assert result == "success"
+        assert mock_fn.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_raises_after_max_attempts(self):
+        """Should raise exception after exhausting retries."""
+        mock_fn = AsyncMock(side_effect=sqlite3.OperationalError("database is locked"))
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            await execute_with_retry(
+                mock_fn, max_attempts=3, initial_wait=0.01, max_wait=0.02
+            )
+        assert mock_fn.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_non_busy_error(self):
+        """Should not retry on non-busy/locked errors."""
+        mock_fn = AsyncMock(side_effect=sqlite3.OperationalError("no such table: foo"))
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            await execute_with_retry(mock_fn, initial_wait=0.01)
+        mock_fn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_non_operational_error(self):
+        """Should not retry on non-OperationalError exceptions."""
+        mock_fn = AsyncMock(side_effect=ValueError("some error"))
+        with pytest.raises(ValueError, match="some error"):
+            await execute_with_retry(mock_fn, initial_wait=0.01)
+        mock_fn.assert_called_once()
