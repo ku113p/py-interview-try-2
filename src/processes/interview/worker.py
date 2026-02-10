@@ -7,18 +7,17 @@ import tempfile
 from functools import partial
 from typing import Any
 
-from src.application.graph import get_graph
-from src.application.state import State, Target
-from src.application.workers.channels import (
-    ChannelRequest,
-    ChannelResponse,
-    Channels,
-    ExtractTask,
-)
-from src.application.workers.pool import run_worker_pool
 from src.config.settings import WORKER_POOL_GRAPH
 from src.domain import ClientMessage, InputMode, User
 from src.infrastructure.db import managers as db
+from src.processes.extract.interfaces import ExtractTask
+from src.processes.interview.graph import get_graph
+from src.processes.interview.interfaces import (
+    ChannelRequest,
+    ChannelResponse,
+)
+from src.processes.interview.state import State, Target
+from src.runtime import Channels, run_worker_pool
 from src.shared.ids import new_id
 from src.shared.utils.content import normalize_content
 
@@ -66,7 +65,7 @@ def _cleanup_tempfiles(temp_files: list[str]) -> None:
 async def _enqueue_extract_if_covered(
     result: dict, user: User, channels: Channels
 ) -> None:
-    """Queue extract task if all criteria were covered."""
+    """Queue extract task if all sub-areas were covered."""
     if result.get("is_fully_covered") and result.get("area_id"):
         task = ExtractTask(area_id=result["area_id"], user_id=user.id)
         await channels.extract.put(task)

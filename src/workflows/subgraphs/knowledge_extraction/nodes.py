@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from src.infrastructure.db import managers as db
 from src.shared.ids import new_id
 from src.shared.timestamp import get_timestamp
+from src.shared.tree_utils import build_sub_area_info, build_tree_text
 
 # Re-export knowledge nodes for backward compatibility
 from .knowledge_nodes import (
@@ -21,12 +22,12 @@ from .state import KnowledgeExtractionState
 
 logger = logging.getLogger(__name__)
 
-# Sentinel value used in LLM prompts for criteria without user responses
+# Sentinel value used in LLM prompts for sub-areas without user responses
 NO_RESPONSE_SENTINEL = "No response provided"
 
 # Export all public names
 __all__ = [
-    "CriterionSummary",
+    "SubAreaSummary",
     "ExtractionResult",
     "KnowledgeExtractionResult",
     "KnowledgeItem",
@@ -40,21 +41,21 @@ __all__ = [
 ]
 
 
-class CriterionSummary(BaseModel):
-    """Summary of user responses for a single criterion."""
+class SubAreaSummary(BaseModel):
+    """Summary of user responses for a single sub-area."""
 
-    criterion: str
+    sub_area: str
     summary: str
 
 
 class ExtractionResult(BaseModel):
     """Structured extraction result from LLM."""
 
-    summaries: list[CriterionSummary]
+    summaries: list[SubAreaSummary]
 
 
 async def load_area_data(state: KnowledgeExtractionState) -> dict:
-    """Load area data including title, criteria, and messages."""
+    """Load area data including title, sub-areas, and messages."""
     area_id = state.area_id
 
     area = await db.LifeAreasManager.get_by_id(area_id)
@@ -62,44 +63,53 @@ async def load_area_data(state: KnowledgeExtractionState) -> dict:
         logger.warning("Area not found for extraction", extra={"area_id": str(area_id)})
         return {"is_successful": False}
 
-    criteria = await db.CriteriaManager.list_by_area(area_id)
+    sub_areas = await db.LifeAreasManager.get_descendants(area_id)
     messages = await db.LifeAreaMessagesManager.list_by_area(area_id)
+
+    # Build tree representation
+    tree_text = build_tree_text(sub_areas, area_id)
+    sub_area_info = build_sub_area_info(sub_areas, area_id)
+    sub_area_paths = [info.path for info in sub_area_info]
 
     logger.info(
         "Loaded area data for extraction",
         extra={
             "area_id": str(area_id),
-            "criteria_count": len(criteria),
+            "sub_area_count": len(sub_area_paths),
             "message_count": len(messages),
         },
     )
 
     return {
         "area_title": area.title,
-        "criteria_titles": [criterion.title for criterion in criteria],
+        "sub_areas_tree": tree_text,
+        "sub_area_paths": sub_area_paths,
         "messages": [message.message_text for message in messages],
     }
 
 
 async def extract_summaries(state: KnowledgeExtractionState, llm: ChatOpenAI) -> dict:
-    """Use LLM to extract and summarize user responses for each criterion.
+    """Use LLM to extract and summarize user responses for each sub-area.
 
-    Note: The check for empty criteria/messages is handled by the router,
+    Note: The check for empty sub-areas/messages is handled by the router,
     so this function assumes valid data is present.
     """
     system_prompt = (
         "You are an interview data extraction agent.\n"
-        "Your task is to summarize what the user said about each criterion.\n\n"
+        "Your task is to summarize what the user said about each sub-area.\n\n"
+        "The sub-areas are shown as a tree and as paths (like 'Work > Projects').\n"
+        "Use the exact paths when outputting summaries.\n\n"
         "Rules:\n"
-        "- For each criterion, extract a concise summary of the user's responses\n"
+        "- For each sub-area path, extract a concise summary of the user's responses\n"
         "- Focus on facts and specific details the user shared\n"
-        f"- If a criterion has no relevant responses, set summary to '{NO_RESPONSE_SENTINEL}'\n"
+        f"- If a sub-area has no relevant responses, set summary to '{NO_RESPONSE_SENTINEL}'\n"
         "- Keep summaries brief but informative (1-3 sentences)\n"
     )
 
     user_prompt = {
         "area": state.area_title,
-        "criteria": state.criteria_titles,
+        "sub_areas_tree": state.sub_areas_tree,
+        "sub_area_paths": state.sub_area_paths,
         "interview_messages": state.messages,
     }
 
@@ -116,13 +126,13 @@ async def extract_summaries(state: KnowledgeExtractionState, llm: ChatOpenAI) ->
         if not isinstance(result, ExtractionResult):
             result = ExtractionResult.model_validate(result)
 
-        extracted = {s.criterion: s.summary for s in result.summaries}
+        extracted = {s.sub_area: s.summary for s in result.summaries}
 
         logger.info(
             "Extracted summaries",
             extra={
                 "area_id": str(state.area_id),
-                "criteria_extracted": len(extracted),
+                "sub_areas_extracted": len(extracted),
             },
         )
 
@@ -138,9 +148,9 @@ async def extract_summaries(state: KnowledgeExtractionState, llm: ChatOpenAI) ->
 def _build_summary_content(extracted_summary: dict[str, str]) -> str:
     """Combine extracted summaries into a single text for embedding."""
     parts = []
-    for criterion, summary in extracted_summary.items():
+    for sub_area, summary in extracted_summary.items():
         if summary and summary != NO_RESPONSE_SENTINEL:
-            parts.append(f"{criterion}: {summary}")
+            parts.append(f"{sub_area}: {summary}")
     return "\n".join(parts)
 
 
