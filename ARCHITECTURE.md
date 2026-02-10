@@ -2,14 +2,19 @@
 
 ## Overview
 
-Interview assistant using LangGraph for workflow orchestration. Collects structured information through conversation, manages life areas (topics) with criteria, and extracts knowledge from completed interviews.
+Interview assistant using LangGraph for workflow orchestration. Collects structured information through conversation, manages hierarchical life areas (topics), and extracts knowledge from completed interviews. Sub-areas at any depth serve as interview topics for their ancestors.
 
 ## Layer Structure
 
 ```
 src/
 ├── adapters/           # External interfaces (API)
-├── application/        # Workflow orchestration, transports & workers
+├── processes/          # Independent async process modules
+│   ├── auth/           # Auth worker (external ID → UUID)
+│   ├── transport/      # CLI + Telegram transports
+│   ├── interview/      # Main interview graph worker
+│   └── extract/        # Knowledge extraction worker
+├── runtime/            # Shared runtime infrastructure
 ├── config/             # Settings & model assignments
 ├── domain/             # Core business models
 ├── infrastructure/     # External services (LLM, database)
@@ -20,11 +25,12 @@ src/
 ### Layer Dependencies
 
 ```
-adapters → application → workflows → infrastructure → domain → shared
-                                                            ↘ config
+adapters → processes → workflows → infrastructure → domain → shared
+              ↓                                           ↘ config
+           runtime
 ```
 
-Each layer only imports from layers below it.
+Each layer only imports from layers below it. Processes only import **interfaces** from other processes, never implementation.
 
 ## Main Workflow
 
@@ -42,13 +48,13 @@ load_history                  # Load conversation from DB
 build_user_message           # Create HumanMessage
   ↓
 extract_target               # Classify: conduct_interview vs manage_areas
-  ├─→ interview_analysis     # Check criteria coverage
+  ├─→ interview_analysis     # Check sub-area coverage
   │     ↓
   │   interview_response     # Generate response
   │     ↓
   │   save_history → END
   │
-  └─→ area_loop (subgraph)   # CRUD for areas/criteria
+  └─→ area_loop (subgraph)   # CRUD for areas
         ↓
       save_history → END
 ```
@@ -72,7 +78,7 @@ Commands are handled in the graph via `handle_command` node, making them transpo
 When deleting a user, data is removed in this order:
 1. `user_knowledge_areas` links
 2. `user_knowledge` items
-3. Per-area: `area_summaries`, `life_area_messages`, `criteria`
+3. Per-area: `area_summaries`, `life_area_messages`
 4. `life_areas`
 5. `histories`
 6. `users`
@@ -93,61 +99,52 @@ Handles media input processing.
 - Transcribes audio to text
 
 ### area_loop
-Tool-calling loop for area/criteria management.
+Tool-calling loop for hierarchical area management.
 - `area_chat`: LLM with bound tools
 - `area_tools`: Execute tool calls in transaction
 - `area_end`: Finalize with success flag
 - Max 10 iterations (recursion limit: 23)
+- Sub-areas are created using `parent_id` to form a tree structure
 
 ### knowledge_extraction
-Post-interview knowledge extraction (triggered when all criteria covered).
-- `load_area_data`: Fetch area messages
-- `extract_summaries`: LLM summarizes per criterion
+Post-interview knowledge extraction (triggered when all sub-areas covered).
+- `load_area_data`: Fetch area messages and descendant sub-areas
+- `extract_summaries`: LLM summarizes per sub-area
 - `save_summary`: Persist with embedding
 - `extract_knowledge`: Extract skills/facts
 - `save_knowledge`: Persist knowledge items
 
-## Transports
+## Process Architecture
 
-Transports handle external communication (user I/O). Located in `src/application/transports/`.
-
-| Transport | Purpose |
-|-----------|---------|
-| CLI | Handles stdin/stdout, user creation |
-| Telegram | Bot interface via polling or webhook mode |
-
-Transports are single async coroutines (not pools) that communicate with worker pools via channels.
-
-### Telegram Transport
-
-Supports two modes via `TELEGRAM_MODE` environment variable:
-- **polling** (default): Long-polling for development/simple deployments
-- **webhook**: HTTPS webhook for production
-
-Required environment variables:
-- `TELEGRAM_BOT_TOKEN`: Bot token from @BotFather
-
-Additional webhook variables:
-- `TELEGRAM_WEBHOOK_URL`: Public HTTPS URL for webhook
-- `TELEGRAM_WEBHOOK_HOST`: Bind address (default: 0.0.0.0)
-- `TELEGRAM_WEBHOOK_PORT`: Port (default: 8443)
-- `TELEGRAM_WEBHOOK_SECRET`: Optional secret token for verification
-
-User ID mapping uses deterministic UUID5 from Telegram user ID, ensuring the same Telegram user always maps to the same internal user_id.
-
-## Worker Architecture
-
-Flat peer-based architecture where transports and worker pools communicate through shared channels:
+The application is organized into 4 independent async processes that communicate through shared channels:
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Transport  │    │    Auth     │    │    Graph    │    │   Extract   │
+│  Transport  │    │    Auth     │    │  Interview  │    │   Extract   │
 │ (CLI/Tg)    │◄──►│   Worker    │◄──►│   Workers   │◄──►│   Workers   │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
        │                  │                  │                  │
        └──────────────────┴──────────────────┴──────────────────┘
                               Channels (shared)
 ```
+
+### Process Modules
+
+| Module | Directory | Purpose | Exports |
+|--------|-----------|---------|---------|
+| auth | `src/processes/auth/` | Exchange external user IDs for internal user_ids | `run_auth_pool`, `AuthRequest`, `resolve_user_id` |
+| transport | `src/processes/transport/` | CLI and Telegram transports | `run_cli`, `run_telegram`, `parse_user_id` |
+| interview | `src/processes/interview/` | Main graph worker for message processing | `run_graph_pool`, `get_graph`, `State`, `Target` |
+| extract | `src/processes/extract/` | Knowledge extraction from completed areas | `run_extract_pool`, `ExtractTask` |
+
+### Runtime Infrastructure
+
+Shared runtime utilities in `src/runtime/`:
+
+| File | Purpose |
+|------|---------|
+| `channels.py` | Channels dataclass with all queue types |
+| `pool.py` | Generic `run_worker_pool()` utility |
 
 ### Worker Pools
 
@@ -174,7 +171,7 @@ AuthRequest      # transport → auth (provider, external_id, display_name, resp
    - Transport matches responses to pending requests by ID
 
 2. **Background Extraction**:
-   - Graph worker queues `ExtractTask` when criteria covered
+   - Graph worker queues `ExtractTask` when sub-areas covered
    - Extract workers process independently (fire-and-forget)
 
 3. **Graceful Shutdown**:
@@ -182,17 +179,70 @@ AuthRequest      # transport → auth (provider, external_id, display_name, resp
    - Any pool can trigger (CLI `/exit`, SIGINT, etc.)
    - Workers check shutdown flag on each iteration
 
+### Dependency Graph
+
+```
+main.py
+    ├── src.runtime.Channels
+    │
+    ├── src.processes.auth
+    │       └── interfaces.py (AuthRequest)
+    │
+    ├── src.processes.transport
+    │       ├── imports src.processes.interview.interfaces
+    │       └── imports src.processes.auth.interfaces
+    │
+    ├── src.processes.interview
+    │       ├── interfaces.py (ChannelRequest, ChannelResponse)
+    │       └── imports src.processes.extract.interfaces
+    │
+    └── src.processes.extract
+            └── interfaces.py (ExtractTask)
+```
+
+Key: Each process only imports **interfaces** from other processes, never implementation.
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `transports/cli.py` | CLI transport (stdin/stdout handling) |
-| `transports/telegram.py` | Telegram bot transport (polling/webhook) |
-| `workers/channels.py` | Channel types and Channels dataclass |
-| `workers/auth_worker.py` | Auth worker (external ID → user_id) |
-| `workers/graph_worker.py` | Graph worker pool |
-| `workers/extract_worker.py` | Extract worker pool |
-| `workers/pool.py` | Generic `run_worker_pool()` utility |
+| `processes/transport/cli.py` | CLI transport (stdin/stdout handling) |
+| `processes/transport/telegram.py` | Telegram bot transport (polling/webhook) |
+| `processes/auth/worker.py` | Auth worker (external ID → user_id) |
+| `processes/interview/worker.py` | Graph worker pool |
+| `processes/interview/graph.py` | Main LangGraph workflow |
+| `processes/interview/state.py` | Main workflow state model |
+| `processes/extract/worker.py` | Extract worker pool |
+| `runtime/channels.py` | Channel types and Channels dataclass |
+| `runtime/pool.py` | Generic `run_worker_pool()` utility |
+
+## Transports
+
+Transports handle external communication (user I/O). Located in `src/processes/transport/`.
+
+| Transport | Purpose |
+|-----------|---------|
+| CLI | Handles stdin/stdout, user creation |
+| Telegram | Bot interface via polling or webhook mode |
+
+Transports are single async coroutines (not pools) that communicate with worker pools via channels.
+
+### Telegram Transport
+
+Supports two modes via `TELEGRAM_MODE` environment variable:
+- **polling** (default): Long-polling for development/simple deployments
+- **webhook**: HTTPS webhook for production
+
+Required environment variables:
+- `TELEGRAM_BOT_TOKEN`: Bot token from @BotFather
+
+Additional webhook variables:
+- `TELEGRAM_WEBHOOK_URL`: Public HTTPS URL for webhook
+- `TELEGRAM_WEBHOOK_HOST`: Bind address (default: 0.0.0.0)
+- `TELEGRAM_WEBHOOK_PORT`: Port (default: 8443)
+- `TELEGRAM_WEBHOOK_SECRET`: Optional secret token for verification
+
+User ID mapping uses deterministic UUID5 from Telegram user ID, ensuring the same Telegram user always maps to the same internal user_id.
 
 ## Database Schema
 
@@ -200,8 +250,7 @@ AuthRequest      # transport → auth (provider, external_id, display_name, resp
 |-------|---------|
 | `users` | User profiles (id, mode, current_area_id) |
 | `histories` | Conversation messages (JSON) |
-| `life_areas` | Topics with hierarchy (parent_id) |
-| `criteria` | Evaluation criteria per area |
+| `life_areas` | Topics with hierarchy (parent_id for tree structure; descendants serve as interview topics) |
 | `life_area_messages` | Interview responses per area |
 | `area_summaries` | Extracted summaries + embeddings |
 | `user_knowledge` | Skills/facts extracted |
@@ -277,8 +326,8 @@ State:
   messages_to_save: MessageBuckets
   is_successful: bool          # Operation success flag
   area_id: UUID
-  criteria_analysis: CriteriaAnalysis
-  is_fully_covered: bool       # All criteria covered, triggers extract worker
+  coverage_analysis: AreaCoverageAnalysis
+  is_fully_covered: bool       # All sub-areas covered, triggers extract worker
   command_response: str | None # Set when command handled (ends workflow early)
 ```
 
@@ -291,13 +340,14 @@ Merge function uses SHA-256 hash of (type, content, tool_calls) to prevent dupli
 
 | Node | Model | Purpose |
 |------|-------|---------|
-| extract_target | gemini-2.5-flash-lite | Fast intent classification |
-| interview_analysis | gemini-2.5-flash | Criteria coverage check |
-| interview_response | gpt-5.1 | Response generation |
-| area_chat | gemini-2.5-flash | Tool-based area management |
-| knowledge_extraction | gemini-2.5-flash | Knowledge extraction |
+| extract_target | gpt-5.1-codex-mini | Fast intent classification |
+| interview_analysis | gpt-5.1-codex-mini | Sub-area coverage check |
+| interview_response | gpt-5.2 | Response generation |
+| area_chat | gpt-5.1-codex-mini | Tool-based area management |
+| knowledge_extraction | gpt-5.1-codex-mini | Knowledge extraction |
+| transcribe | gemini-2.5-flash-lite | Audio transcription |
 
-Configured in `src/config/settings.py`.
+Configured in `src/config/settings.py`. See `LLM_MANIFEST.md` for detailed token limits and temperatures.
 
 ## Key Patterns
 
@@ -308,3 +358,4 @@ Configured in `src/config/settings.py`.
 5. **Graceful Shutdown**: Shared event signals all worker pools
 6. **Correlation IDs**: Request/response matching for concurrent transports
 7. **Peer Workers**: All pools are equal peers, no ownership hierarchy
+8. **Interface Isolation**: Processes import only interfaces from each other

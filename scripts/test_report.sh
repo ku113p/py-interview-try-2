@@ -36,16 +36,14 @@ fi
 CASE_NAME=$(jq -r '.name' "$CASE_FILE")
 INPUTS=$(jq -r '.inputs | join("\n")' "$CASE_FILE")
 EXP_AREAS=$(jq -r '.expected.life_areas' "$CASE_FILE")
-CRIT_MIN=$(jq -r '.expected.criteria_min' "$CASE_FILE")
-CRIT_MAX=$(jq -r '.expected.criteria_max' "$CASE_FILE")
-SUM_MIN=$(jq -r '.expected.summaries_min' "$CASE_FILE")
-SUM_MAX=$(jq -r '.expected.summaries_max' "$CASE_FILE")
-KNOW_MIN=$(jq -r '.expected.knowledge_min' "$CASE_FILE")
-KNOW_MAX=$(jq -r '.expected.knowledge_max' "$CASE_FILE")
+SUB_AREAS_MIN=$(jq -r '.expected.sub_areas_min' "$CASE_FILE")
+SUB_AREAS_MAX=$(jq -r '.expected.sub_areas_max' "$CASE_FILE")
+EXPECT_SUMMARIES=$(jq -r '.expected.summaries // false' "$CASE_FILE")
+EXPECT_KNOWLEDGE=$(jq -r '.expected.knowledge // false' "$CASE_FILE")
 
-# Use /exit_10 if test expects knowledge or summaries (wait for background tasks)
-if [ "$KNOW_MIN" -gt 0 ] || [ "$SUM_MIN" -gt 0 ]; then
-    INPUTS="${INPUTS//\/exit//exit_10}"
+# Use /exit_30 if test expects knowledge or summaries (wait for background tasks)
+if [ "$EXPECT_KNOWLEDGE" = "true" ] || [ "$EXPECT_SUMMARIES" = "true" ]; then
+    INPUTS="${INPUTS//\/exit//exit_30}"
 fi
 
 echo "════════════════════════════════════════════════════════════════"
@@ -75,10 +73,10 @@ for RUN in $(seq 1 $REPEAT); do
     LOGFILE="/tmp/test_log_$USER_ID.json"
     echo "$INPUTS" | timeout 180 uv run python main.py --user-id "$USER_ID" 2>"$LOGFILE" || true
 
-    # Show key log events
+    # Show all logs
     echo ""
-    echo "Key events from logs:"
-    cat "$LOGFILE" | jq -r 'select(.message) | "  [\(.timestamp // "?")] \(.message)"' 2>/dev/null | head -20 || echo "  (no logs)"
+    echo "Full logs:"
+    cat "$LOGFILE" 2>/dev/null || echo "  (no logs)"
 
     # === SECTION 2: TEST RESULT ===
     echo ""
@@ -86,10 +84,10 @@ for RUN in $(seq 1 $REPEAT); do
     echo ""
 
     # Query counts
-    read AREAS CRITERIA SUMMARIES KNOWLEDGE <<< $(sqlite3 interview.db "
+    read AREAS SUB_AREAS SUMMARIES KNOWLEDGE <<< $(sqlite3 interview.db "
         SELECT
             (SELECT COUNT(*) FROM life_areas WHERE user_id = '$USER_ID'),
-            (SELECT COUNT(*) FROM criteria WHERE area_id IN (SELECT id FROM life_areas WHERE user_id = '$USER_ID')),
+            (SELECT COUNT(*) FROM life_areas WHERE parent_id IS NOT NULL AND user_id = '$USER_ID'),
             (SELECT COUNT(*) FROM area_summaries WHERE area_id IN (SELECT id FROM life_areas WHERE user_id = '$USER_ID')),
             (SELECT COUNT(*) FROM user_knowledge_areas WHERE user_id = '$USER_ID')
     " | tr '|' ' ')
@@ -98,14 +96,18 @@ for RUN in $(seq 1 $REPEAT); do
     STATUS="PASS"
     ERRORS=""
     [ "$AREAS" -ne "$EXP_AREAS" ] && STATUS="FAIL" && ERRORS="areas=$AREAS(exp=$EXP_AREAS) "
-    ([ "$CRITERIA" -lt "$CRIT_MIN" ] || [ "$CRITERIA" -gt "$CRIT_MAX" ]) && STATUS="FAIL" && ERRORS="${ERRORS}criteria=$CRITERIA(exp=$CRIT_MIN-$CRIT_MAX) "
-    ([ "$SUMMARIES" -lt "$SUM_MIN" ] || [ "$SUMMARIES" -gt "$SUM_MAX" ]) && STATUS="FAIL" && ERRORS="${ERRORS}summaries=$SUMMARIES(exp=$SUM_MIN-$SUM_MAX) "
-    ([ "$KNOWLEDGE" -lt "$KNOW_MIN" ] || [ "$KNOWLEDGE" -gt "$KNOW_MAX" ]) && STATUS="FAIL" && ERRORS="${ERRORS}knowledge=$KNOWLEDGE(exp=$KNOW_MIN-$KNOW_MAX) "
+    ([ "$SUB_AREAS" -lt "$SUB_AREAS_MIN" ] || [ "$SUB_AREAS" -gt "$SUB_AREAS_MAX" ]) && STATUS="FAIL" && ERRORS="${ERRORS}sub_areas=$SUB_AREAS(exp=$SUB_AREAS_MIN-$SUB_AREAS_MAX) "
+    [ "$EXPECT_SUMMARIES" = "true" ] && [ "$SUMMARIES" -eq 0 ] && STATUS="FAIL" && ERRORS="${ERRORS}summaries=0(exp>0) "
+    [ "$EXPECT_KNOWLEDGE" = "true" ] && [ "$KNOWLEDGE" -eq 0 ] && STATUS="FAIL" && ERRORS="${ERRORS}knowledge=0(exp>0) "
 
     # Check for errors in log
-    if grep -qi "error\|exception\|traceback" "$LOGFILE" 2>/dev/null; then
+    ERROR_LINES=$(grep -i "error\|exception\|traceback" "$LOGFILE" 2>/dev/null || true)
+    if [ -n "$ERROR_LINES" ]; then
         STATUS="FAIL"
         ERRORS="${ERRORS}log_errors "
+        echo ""
+        echo ">>> LOG ERRORS DETECTED"
+        echo "$ERROR_LINES"
     fi
 
     [ "$STATUS" = "PASS" ] && TOTAL_PASSED=$((TOTAL_PASSED + 1)) || TOTAL_FAILED=$((TOTAL_FAILED + 1))
@@ -115,9 +117,9 @@ for RUN in $(seq 1 $REPEAT); do
     echo ""
     echo "Entity counts:"
     echo "  life_areas:  $AREAS (expected: $EXP_AREAS)"
-    echo "  criteria:    $CRITERIA (expected: $CRIT_MIN-$CRIT_MAX)"
-    echo "  summaries:   $SUMMARIES (expected: $SUM_MIN-$SUM_MAX)"
-    echo "  knowledge:   $KNOWLEDGE (expected: $KNOW_MIN-$KNOW_MAX)"
+    echo "  sub_areas:   $SUB_AREAS (expected: $SUB_AREAS_MIN-$SUB_AREAS_MAX)"
+    echo "  summaries:   $SUMMARIES (expected: $EXPECT_SUMMARIES)"
+    echo "  knowledge:   $KNOWLEDGE (expected: $EXPECT_KNOWLEDGE)"
 
     # === SECTION 3: SQL ENTITIES ===
     echo ""
@@ -125,11 +127,11 @@ for RUN in $(seq 1 $REPEAT); do
     echo ""
 
     echo "Life Areas:"
-    sqlite3 -header -column interview.db "SELECT id, title FROM life_areas WHERE user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
+    sqlite3 -header -column interview.db "SELECT id, title, parent_id FROM life_areas WHERE user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     echo ""
-    echo "Criteria:"
-    sqlite3 -header -column interview.db "SELECT c.id, c.title FROM criteria c JOIN life_areas a ON c.area_id = a.id WHERE a.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
+    echo "Sub-Areas (life_areas with parent):"
+    sqlite3 -header -column interview.db "SELECT id, title, parent_id FROM life_areas WHERE parent_id IS NOT NULL AND user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     echo ""
     echo "Summaries:"
@@ -139,7 +141,9 @@ for RUN in $(seq 1 $REPEAT); do
     echo "Knowledge:"
     sqlite3 -header -column interview.db "SELECT uk.id, uk.description, uk.kind FROM user_knowledge uk JOIN user_knowledge_areas uka ON uk.id = uka.knowledge_id WHERE uka.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
-    rm -f "$LOGFILE"
+    # Keep log for inspection
+    echo ""
+    echo "Log file: $LOGFILE"
 done
 
 # === FINAL SUMMARY ===

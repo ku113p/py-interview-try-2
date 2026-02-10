@@ -1,4 +1,4 @@
-"""Core repository managers: Users, History, LifeArea, Criteria."""
+"""Core repository managers: Users, History, LifeArea."""
 
 import json
 import uuid
@@ -7,7 +7,7 @@ from typing import Any
 import aiosqlite
 
 from .base import ORMBase
-from .models import Criteria, History, LifeArea, User
+from .models import History, LifeArea, User
 
 
 class UsersManager(ORMBase[User]):
@@ -84,24 +84,76 @@ class LifeAreasManager(ORMBase[LifeArea]):
             "user_id": str(data.user_id),
         }
 
+    @classmethod
+    async def get_descendants(
+        cls, area_id: uuid.UUID, conn: aiosqlite.Connection | None = None
+    ) -> list[LifeArea]:
+        """Get all descendant areas recursively using CTE."""
+        from .connection import get_connection
 
-class CriteriaManager(ORMBase[Criteria]):
-    _table = "criteria"
-    _columns = ("id", "title", "area_id")
-    _area_column = "area_id"
+        query = """
+            WITH RECURSIVE descendants AS (
+                SELECT id, title, parent_id, user_id
+                FROM life_areas
+                WHERE parent_id = ?
+                UNION ALL
+                SELECT la.id, la.title, la.parent_id, la.user_id
+                FROM life_areas la
+                JOIN descendants d ON la.parent_id = d.id
+            )
+            SELECT id, title, parent_id, user_id FROM descendants
+            ORDER BY title
+        """
+        if conn is None:
+            async with get_connection() as local_conn:
+                cursor = await local_conn.execute(query, (str(area_id),))
+                rows = await cursor.fetchall()
+        else:
+            cursor = await conn.execute(query, (str(area_id),))
+            rows = await cursor.fetchall()
+        return [cls._row_to_obj(row) for row in rows]
 
     @classmethod
-    def _row_to_obj(cls, row: aiosqlite.Row) -> Criteria:
-        return Criteria(
-            id=uuid.UUID(row["id"]),
-            title=row["title"],
-            area_id=uuid.UUID(row["area_id"]),
-        )
+    async def get_ancestors(
+        cls, area_id: uuid.UUID, conn: aiosqlite.Connection | None = None
+    ) -> list[LifeArea]:
+        """Get all ancestor areas recursively using CTE (parent chain to root)."""
+        from .connection import get_connection
+
+        query = """
+            WITH RECURSIVE ancestors AS (
+                SELECT id, title, parent_id, user_id
+                FROM life_areas
+                WHERE id = (SELECT parent_id FROM life_areas WHERE id = ?)
+                UNION ALL
+                SELECT la.id, la.title, la.parent_id, la.user_id
+                FROM life_areas la
+                JOIN ancestors a ON la.id = a.parent_id
+            )
+            SELECT id, title, parent_id, user_id FROM ancestors
+        """
+        if conn is None:
+            async with get_connection() as local_conn:
+                cursor = await local_conn.execute(query, (str(area_id),))
+                rows = await cursor.fetchall()
+        else:
+            cursor = await conn.execute(query, (str(area_id),))
+            rows = await cursor.fetchall()
+        return [cls._row_to_obj(row) for row in rows]
 
     @classmethod
-    def _obj_to_row(cls, data: Criteria) -> dict[str, Any]:
-        return {
-            "id": str(data.id),
-            "title": data.title,
-            "area_id": str(data.area_id),
-        }
+    async def would_create_cycle(
+        cls,
+        area_id: uuid.UUID,
+        new_parent_id: uuid.UUID,
+        conn: aiosqlite.Connection | None = None,
+    ) -> bool:
+        """Check if setting new_parent_id would create a cycle.
+
+        A cycle occurs if new_parent_id is a descendant of area_id.
+        Used for validating parent changes on update operations.
+        """
+        if area_id == new_parent_id:
+            return True
+        descendants = await cls.get_descendants(area_id, conn=conn)
+        return any(d.id == new_parent_id for d in descendants)
