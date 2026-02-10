@@ -186,11 +186,9 @@ async def _handle_text_message(
         await _safe_reply(message, "An error occurred. Please try again.")
 
 
-async def _download_voice(message: Message, bot: Bot) -> io.BytesIO | None:
-    """Download voice message, return BytesIO or None on failure."""
-    if not message.voice:
-        return None
-    file = await bot.get_file(message.voice.file_id)
+async def _download_media(file_id: str, bot: Bot) -> io.BytesIO | None:
+    """Download media file by ID, return BytesIO or None on failure."""
+    file = await bot.get_file(file_id)
     if not file.file_path:
         return None
     data = await bot.download_file(file.file_path)
@@ -204,13 +202,15 @@ async def _process_voice(
     pending_responses: dict[uuid.UUID, asyncio.Future[str]],
 ) -> None:
     """Download, transcribe, and respond to voice message."""
-    user_id = await _get_user_id(
-        message.from_user.id, _get_display_name(message), channels
-    )
-    voice_data = await _download_voice(message, bot)
+    if not message.voice:
+        return
+    voice_data = await _download_media(message.voice.file_id, bot)
     if not voice_data:
         await _safe_reply(message, "Failed to download voice message")
         return
+    user_id = await _get_user_id(
+        message.from_user.id, _get_display_name(message), channels
+    )
     media = MediaMessage(type=MessageType.audio, content=voice_data)
     client_msg = ClientMessage(data=media)
     response = await _send_request(user_id, client_msg, channels, pending_responses)
@@ -232,6 +232,46 @@ async def _handle_voice_message(
         await _safe_reply(message, "Service temporarily unavailable. Please try again.")
     except Exception:
         logger.exception("Failed to process voice message")
+        await _safe_reply(message, "An error occurred. Please try again.")
+
+
+async def _process_video_note(
+    message: Message,
+    bot: Bot,
+    channels: Channels,
+    pending_responses: dict[uuid.UUID, asyncio.Future[str]],
+) -> None:
+    """Download, transcribe, and respond to video note (video circle)."""
+    if not message.video_note:
+        return
+    video_data = await _download_media(message.video_note.file_id, bot)
+    if not video_data:
+        await _safe_reply(message, "Failed to download video message")
+        return
+    user_id = await _get_user_id(
+        message.from_user.id, _get_display_name(message), channels
+    )
+    media = MediaMessage(type=MessageType.video, content=video_data)
+    client_msg = ClientMessage(data=media)
+    response = await _send_request(user_id, client_msg, channels, pending_responses)
+    await _send_response(bot, message.chat.id, response)
+
+
+async def _handle_video_note_message(
+    message: Message,
+    bot: Bot,
+    channels: Channels,
+    pending_responses: dict[uuid.UUID, asyncio.Future[str]],
+) -> None:
+    """Process video note (video circle) message through graph."""
+    if not message.from_user or not message.video_note:
+        return
+    try:
+        await _process_video_note(message, bot, channels, pending_responses)
+    except asyncio.TimeoutError:
+        await _safe_reply(message, "Service temporarily unavailable. Please try again.")
+    except Exception:
+        logger.exception("Failed to process video note message")
         await _safe_reply(message, "An error occurred. Please try again.")
 
 
@@ -263,6 +303,10 @@ def _create_router(
     @router.message(F.voice)
     async def on_voice(message: Message) -> None:
         await _handle_voice_message(message, bot, channels, pending_responses)
+
+    @router.message(F.video_note)
+    async def on_video_note(message: Message) -> None:
+        await _handle_video_note_message(message, bot, channels, pending_responses)
 
     return router
 
