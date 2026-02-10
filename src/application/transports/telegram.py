@@ -4,6 +4,8 @@ import asyncio
 import io
 import logging
 import uuid
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.exceptions import TelegramNetworkError
@@ -40,7 +42,10 @@ SEND_RETRY_ATTEMPTS = 3
 SEND_RETRY_BASE_DELAY = 1.0  # seconds
 
 
-async def _retry_send(coro_factory, description: str) -> None:
+async def _retry_send(
+    coro_factory: Callable[[], Coroutine[Any, Any, Any]],
+    description: str,
+) -> None:
     """Retry a send operation with exponential backoff."""
     for attempt in range(SEND_RETRY_ATTEMPTS):
         try:
@@ -233,11 +238,6 @@ async def _handle_voice_message(
         await _safe_reply(message, "An error occurred. Please try again.")
 
 
-def _is_not_command(message: Message) -> bool:
-    """Filter: return True if message is not a command."""
-    return not (message.text and message.text.startswith("/"))
-
-
 def _create_router(
     bot: Bot,
     channels: Channels,
@@ -248,16 +248,18 @@ def _create_router(
 
     @router.message(Command("start"))
     async def on_start(message: Message) -> None:
-        await message.reply(
+        await _safe_reply(
+            message,
             "Hello! I'm your interview assistant.\n\n"
-            "Send me a text or voice message to start a conversation."
+            "Send me a text or voice message to start a conversation.",
         )
 
-    @router.message(Command("help"))
-    async def on_help(message: Message) -> None:
+    @router.message(F.text.startswith("/"), ~Command("start"))
+    async def on_command(message: Message) -> None:
+        """Route all commands (except /start) through the graph."""
         await _handle_text_message(message, bot, channels, pending_responses)
 
-    @router.message(F.text, _is_not_command)
+    @router.message(F.text)
     async def on_text(message: Message) -> None:
         await _handle_text_message(message, bot, channels, pending_responses)
 
