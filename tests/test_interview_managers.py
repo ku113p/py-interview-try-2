@@ -204,7 +204,7 @@ class TestLeafExtractionQueueManager:
         claimed = await db.LeafExtractionQueueManager.claim_pending(limit=1)
         assert len(claimed) == 1
         assert claimed[0].id == task_id
-        assert claimed[0].status == "pending"  # Status in returned object
+        assert claimed[0].status == "processing"  # Now returns actual status
 
         # Verify it's now processing in DB
         # Try to claim again - should get nothing
@@ -329,3 +329,82 @@ class TestLeafExtractionQueueManager:
 
         result = await db.LeafExtractionQueueManager.get_by_id(task_id)
         assert result.status == "failed"  # Still failed
+
+    @pytest.mark.asyncio
+    async def test_claim_pending_concurrent_no_overlap(self, temp_db):
+        """Concurrent claims should not return overlapping tasks."""
+        import asyncio
+
+        root_area_id = new_id()
+        now = get_timestamp()
+
+        # Create 4 tasks
+        task_ids = []
+        for i in range(4):
+            task = db.LeafExtractionQueueItem(
+                id=new_id(),
+                leaf_id=new_id(),
+                root_area_id=root_area_id,
+                message_ids=["msg"],
+                created_at=now + i,
+            )
+            await db.LeafExtractionQueueManager.create(task.id, task)
+            task_ids.append(task.id)
+
+        # Concurrent claims - each should get different tasks
+        results = await asyncio.gather(
+            db.LeafExtractionQueueManager.claim_pending(limit=2),
+            db.LeafExtractionQueueManager.claim_pending(limit=2),
+        )
+
+        # Collect all claimed task IDs
+        all_claimed = []
+        for result in results:
+            all_claimed.extend([t.id for t in result])
+
+        # Should have claimed 4 unique tasks total (no overlap)
+        assert len(all_claimed) == 4
+        assert len(set(all_claimed)) == 4  # All unique
+
+
+class TestLifeAreaMessagesManager:
+    """Tests for LifeAreaMessagesManager leaf_ids handling."""
+
+    @pytest.mark.asyncio
+    async def test_leaf_ids_round_trip(self, temp_db):
+        """Should correctly store and retrieve leaf_ids JSON."""
+        area_id = new_id()
+        msg_id = new_id()
+        leaf_ids = [str(new_id()), str(new_id())]
+
+        msg = db.LifeAreaMessage(
+            id=msg_id,
+            message_text="Test message",
+            area_id=area_id,
+            created_ts=get_timestamp(),
+            leaf_ids=leaf_ids,
+        )
+        await db.LifeAreaMessagesManager.create(msg_id, msg)
+
+        result = await db.LifeAreaMessagesManager.get_by_id(msg_id)
+        assert result is not None
+        assert result.leaf_ids == leaf_ids
+
+    @pytest.mark.asyncio
+    async def test_leaf_ids_none_handling(self, temp_db):
+        """Should handle None leaf_ids correctly."""
+        area_id = new_id()
+        msg_id = new_id()
+
+        msg = db.LifeAreaMessage(
+            id=msg_id,
+            message_text="Test message",
+            area_id=area_id,
+            created_ts=get_timestamp(),
+            leaf_ids=None,
+        )
+        await db.LifeAreaMessagesManager.create(msg_id, msg)
+
+        result = await db.LifeAreaMessagesManager.get_by_id(msg_id)
+        assert result is not None
+        assert result.leaf_ids is None

@@ -277,6 +277,16 @@ class LeafExtractionQueueManager(ORMBase[LeafExtractionQueueItem]):
         """Atomically claim pending tasks for processing.
 
         Uses explicit transaction control to prevent race conditions between workers.
+        Returns tasks with status already set to 'processing'.
+
+        Args:
+            limit: Maximum number of tasks to claim.
+            conn: Optional existing connection. If provided, caller MUST ensure
+                  the connection is within a transaction (e.g., from transaction()
+                  context manager) to maintain atomicity guarantees.
+
+        Returns:
+            List of claimed tasks with status='processing'.
         """
         if conn is not None:
             return await cls._do_claim(limit, conn)
@@ -307,7 +317,11 @@ class LeafExtractionQueueManager(ORMBase[LeafExtractionQueueItem]):
         await conn.execute(update_query, task_ids)
         # No commit - transaction() handles it
 
-        return [cls._row_to_obj(row) for row in rows]
+        # Return objects with updated status
+        items = [cls._row_to_obj(row) for row in rows]
+        for item in items:
+            item.status = "processing"
+        return items
 
     @classmethod
     async def mark_completed(

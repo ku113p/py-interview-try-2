@@ -1,6 +1,7 @@
 """Area data repository managers: LifeAreaMessages and AreaSummaries."""
 
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -8,6 +9,8 @@ import aiosqlite
 
 from .base import ORMBase
 from .models import AreaSummary, LifeAreaMessage
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_vector(vector: list[float]) -> bytes:
@@ -43,7 +46,15 @@ class LifeAreaMessagesManager(ORMBase[LifeAreaMessage]):
 
     @classmethod
     def _row_to_obj(cls, row: aiosqlite.Row) -> LifeAreaMessage:
-        leaf_ids = json.loads(row["leaf_ids"]) if row["leaf_ids"] else None
+        leaf_ids = None
+        if row["leaf_ids"]:
+            try:
+                leaf_ids = json.loads(row["leaf_ids"])
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Invalid JSON in leaf_ids",
+                    extra={"message_id": row["id"]},
+                )
         return LifeAreaMessage(
             id=uuid.UUID(row["id"]),
             message_text=row["message_text"],
