@@ -5,22 +5,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from src.domain import ClientMessage, InputMode, User
+from src.domain import InputMode, User
 from src.infrastructure.db import managers as db
-from src.processes.interview import State, Target
 from src.shared.ids import new_id
 from src.shared.interview_models import LeafEvaluation
-from src.workflows.nodes.processing.leaf_interview import (
+from src.workflows.subgraphs.leaf_interview.nodes import (
     generate_leaf_response,
     load_interview_context,
     quick_evaluate,
     select_next_leaf,
     update_coverage_status,
 )
+from src.workflows.subgraphs.leaf_interview.state import LeafInterviewState
 
 
-def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> State:
-    """Helper to create test State objects.
+def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> LeafInterviewState:
+    """Helper to create test LeafInterviewState objects.
 
     Args:
         user: User object.
@@ -39,11 +39,8 @@ def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> State:
         "completed_leaf_path": None,
     }
     defaults.update(kwargs)
-    return State(
+    return LeafInterviewState(
         user=user,
-        message=ClientMessage(data="test"),
-        text="test",
-        target=Target.conduct_interview,
         area_id=area_id,
         **defaults,
     )

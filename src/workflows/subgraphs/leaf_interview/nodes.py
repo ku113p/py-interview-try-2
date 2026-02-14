@@ -6,12 +6,13 @@ import uuid
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from src.config.settings import HISTORY_LIMIT_EXTRACT_TARGET
 from src.infrastructure.db import managers as db
-from src.processes.interview import State
 from src.shared.interview_models import LeafEvaluation
 from src.shared.messages import filter_tool_messages, format_role
 from src.shared.prompts import (
     PROMPT_ALL_LEAVES_DONE,
+    PROMPT_COMPLETED_AREA,
     PROMPT_LEAF_COMPLETE,
     PROMPT_LEAF_FOLLOWUP,
     PROMPT_LEAF_QUESTION,
@@ -21,6 +22,7 @@ from src.shared.retry import invoke_with_retry
 from src.shared.timestamp import get_timestamp
 from src.shared.tree_utils import SubAreaInfo, build_sub_area_info, get_leaf_path
 from src.shared.utils.content import normalize_content
+from src.workflows.subgraphs.leaf_interview.state import LeafInterviewState
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +152,7 @@ async def _handle_no_next_leaf(
     return _build_leaf_state(None)
 
 
-async def load_interview_context(state: State):
+async def load_interview_context(state: LeafInterviewState):
     """Load or create active interview context for the user."""
     user_id, area_id = state.user.id, state.area_id
     leaf_areas = await _get_leaf_areas_for_root(area_id)
@@ -184,7 +186,7 @@ def _format_history_messages(messages: list[dict]) -> list[str]:
     return texts
 
 
-async def quick_evaluate(state: State, llm: ChatOpenAI):
+async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
     """Evaluate if user has fully answered the current leaf topic."""
     if state.all_leaves_done or not state.active_leaf_id:
         return {"leaf_evaluation": None}
@@ -221,7 +223,9 @@ async def quick_evaluate(state: State, llm: ChatOpenAI):
     return {"leaf_evaluation": result}
 
 
-async def _mark_leaf_complete(state: State, evaluation: LeafEvaluation) -> None:
+async def _mark_leaf_complete(
+    state: LeafInterviewState, evaluation: LeafEvaluation
+) -> None:
     """Mark leaf as covered/skipped."""
     now = get_timestamp()
     status = "covered" if evaluation.status == "complete" else "skipped"
@@ -231,7 +235,7 @@ async def _mark_leaf_complete(state: State, evaluation: LeafEvaluation) -> None:
     )
 
 
-async def update_coverage_status(state: State):
+async def update_coverage_status(state: LeafInterviewState):
     """Update coverage status based on evaluation.
 
     Returns completed_leaf_id when a leaf is marked complete/skipped,
@@ -247,7 +251,7 @@ async def update_coverage_status(state: State):
     return {}
 
 
-async def select_next_leaf(state: State):
+async def select_next_leaf(state: LeafInterviewState):
     """Select the next leaf to ask about, or stay on current if partial."""
     if state.all_leaves_done:
         return {}
@@ -279,7 +283,7 @@ async def select_next_leaf(state: State):
 
 
 async def _generate_response_content(
-    state: State, llm: ChatOpenAI, current_leaf_path: str
+    state: LeafInterviewState, llm: ChatOpenAI, current_leaf_path: str
 ) -> str:
     """Generate response content based on evaluation status."""
     evaluation = state.leaf_evaluation
@@ -307,7 +311,7 @@ async def _generate_response_content(
     )
 
 
-async def generate_leaf_response(state: State, llm: ChatOpenAI):
+async def generate_leaf_response(state: LeafInterviewState, llm: ChatOpenAI):
     """Generate a focused question or response for the current leaf."""
     if state.all_leaves_done:
         content = await _prompt_llm(
@@ -337,3 +341,25 @@ async def generate_leaf_response(state: State, llm: ChatOpenAI):
         },
     )
     return _build_response(ai_msg, question_text)
+
+
+async def completed_area_response(state: LeafInterviewState, llm: ChatOpenAI):
+    """Generate response for already-extracted areas."""
+    prompt = PROMPT_COMPLETED_AREA.format(area_id=str(state.area_id))
+    chat_messages = filter_tool_messages(state.messages)
+    history = chat_messages[-HISTORY_LIMIT_EXTRACT_TARGET:]
+    messages = [SystemMessage(content=prompt), *history]
+
+    response = await invoke_with_retry(lambda: llm.ainvoke(messages))
+
+    logger.info(
+        "Completed area response generated",
+        extra={"area_id": str(state.area_id)},
+    )
+
+    ai_msg = AIMessage(content=response.content)
+    return {
+        "messages": [ai_msg],
+        "messages_to_save": {get_timestamp(): [ai_msg]},
+        "is_successful": True,
+    }

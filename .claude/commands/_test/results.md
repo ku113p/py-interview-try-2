@@ -13,24 +13,24 @@
 
 | # | Case Name | Status | Areas | Sub-Areas | Summaries | Knowledge | Last Run |
 |---|-----------|--------|-------|-----------|-----------|-----------|----------|
-| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 2/true | 8/true | 2026-02-11 23:49 |
-| 5 | Quick Interaction | PASS | 1/1 | 0/0-0 | 0/false | 0/false | 2026-02-11 23:49 |
-| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 1/true | 4/true | 2026-02-11 23:49 |
-| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-11 23:49 |
-| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 2/true | 20/true | 2026-02-11 23:49 |
-| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-11 23:49 |
-| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-11 23:49 |
-| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-11 23:49 |
-| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 1/true | 5/true | 2026-02-11 23:56 |
-| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 2/true | 8/true | 2026-02-11 23:49 |
+| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 1/true | 4/true | 2026-02-13 03:09 |
+| 5 | Quick Interaction | PASS | 1/1 | 0/0-0 | 0/false | 0/false | 2026-02-13 03:09 |
+| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 1/true | 5/true | 2026-02-13 03:09 |
+| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-13 03:09 |
+| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 1/true | 7/true | 2026-02-13 03:09 |
+| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-13 03:09 |
+| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-13 03:09 |
+| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-13 03:09 |
+| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 1/true | 5/true | 2026-02-13 03:09 |
+| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 1/true | 4/true | 2026-02-13 03:09 |
 
 ## Test Case Descriptions
 
 | # | Name | Focus |
 |---|------|-------|
-| 1 | CRUD Operations | Basic area + sub-area creation, interview flow |
+| 1 | CRUD Operations | Basic area + sub-area creation, leaf-by-leaf interview flow |
 | 5 | Quick Interaction | Minimal conversation, no extraction expected |
-| 13 | Knowledge - Skill Extraction | Technical skill extraction from interview |
+| 13 | Knowledge - Skill Extraction | Technical skill extraction from leaf-by-leaf interview |
 | 18 | Multi-Area - Creation | Creating multiple root areas in one session |
 | 21 | Tree Sub-Areas Full Flow | Hierarchical sub-areas with nested parent-child relationships |
 | 22 | Subtree - Bulk Create | Bulk nested sub-area creation via create_subtree |
@@ -61,6 +61,24 @@ Test cases use the following expected fields:
 - `knowledge` - Boolean: expect user_knowledge_areas > 0
 
 ## Recent Changes
+
+### 2026-02-13: Fixed Leaf Interview Flow Issues
+
+**Issue 1 - Small talk routing override:**
+- Short confirmations like "yes" were being routed to `small_talk` instead of `conduct_interview`
+- Fix: `extract_target` now checks for active interview context and overrides to `conduct_interview`
+
+**Issue 2 - Leaf order predictability:**
+- Changed `get_descendants` from `ORDER BY title` to `ORDER BY id` (UUID7)
+- Leaves are now asked in creation order (predictable, intuitive)
+
+**Issue 3 - Evaluation too lenient:**
+- `PROMPT_QUICK_EVALUATE` now explicitly requires content to match the specific topic being asked
+- Answers about wrong topics are marked as "partial" not "complete"
+
+**Test cases updated:**
+- All 5 extraction test cases (1, 13, 21, 25, 26) updated for leaf-by-leaf interview flow
+- Answers now provided in creation order with topic-specific content
 
 ### 2026-02-11: Fixed Three Failing Tests (1, 22, 24)
 
@@ -97,6 +115,13 @@ Test cases use the following expected fields:
 - Fixed token limit for knowledge extraction (1024 -> 4096)
 
 ## Resolved Issues
+
+### Leaf Interview Flow Issues (Fixed 2026-02-13)
+
+Three issues were identified and fixed:
+1. `extract_target` routing confirmations to `small_talk` during active interviews
+2. Leaf order was alphabetical (unpredictable) instead of creation order
+3. Evaluation accepted answers about wrong topics as "complete"
 
 ### Test 1 - UUID Normalization (Fixed 2026-02-11)
 The `_validate_uuid` function was validating UUIDs but returning the original string unchanged. When UUIDs passed through LLM extraction, minor corruption could occur. Fixed by returning the normalized UUID via `str(uuid.UUID(value))`.

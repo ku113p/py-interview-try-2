@@ -24,12 +24,13 @@ _SCHEMA_SQL = """
         parent_id TEXT,
         user_id TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS life_area_messages (
-        id TEXT PRIMARY KEY,
-        message_text TEXT NOT NULL,
-        area_id TEXT NOT NULL,
-        created_ts REAL NOT NULL
+    -- Leaf-to-history join table: links leaves to their conversation messages
+    CREATE TABLE IF NOT EXISTS leaf_history (
+        leaf_id TEXT NOT NULL,
+        history_id TEXT NOT NULL,
+        PRIMARY KEY (leaf_id, history_id)
     );
+    CREATE INDEX IF NOT EXISTS leaf_history_leaf_idx ON leaf_history(leaf_id);
     CREATE INDEX IF NOT EXISTS histories_user_id_idx
         ON histories(user_id);
     CREATE INDEX IF NOT EXISTS histories_created_ts_idx
@@ -38,10 +39,6 @@ _SCHEMA_SQL = """
         ON life_areas(user_id);
     CREATE INDEX IF NOT EXISTS life_areas_parent_id_idx
         ON life_areas(parent_id);
-    CREATE INDEX IF NOT EXISTS life_area_messages_area_id_idx
-        ON life_area_messages(area_id);
-    CREATE INDEX IF NOT EXISTS life_area_messages_created_ts_idx
-        ON life_area_messages(created_ts);
     CREATE TABLE IF NOT EXISTS area_summaries (
         id TEXT PRIMARY KEY,
         area_id TEXT NOT NULL,
@@ -89,25 +86,8 @@ _SCHEMA_SQL = """
         root_area_id TEXT NOT NULL,
         active_leaf_id TEXT NOT NULL,
         question_text TEXT,
-        message_ids TEXT,
         created_at REAL NOT NULL
     );
-
-    -- Leaf extraction queue: async extraction tasks
-    CREATE TABLE IF NOT EXISTS leaf_extraction_queue (
-        id TEXT PRIMARY KEY,
-        leaf_id TEXT NOT NULL,
-        root_area_id TEXT NOT NULL,
-        message_ids TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        retry_count INTEGER DEFAULT 0,
-        created_at REAL NOT NULL,
-        processed_at REAL
-    );
-    CREATE INDEX IF NOT EXISTS leaf_extraction_queue_status_idx
-        ON leaf_extraction_queue(status);
-    CREATE INDEX IF NOT EXISTS leaf_extraction_queue_status_created_idx
-        ON leaf_extraction_queue(status, created_at);
 """
 
 
@@ -152,12 +132,6 @@ async def init_schema_async(conn: aiosqlite.Connection, db_path: str) -> None:
 
         await ensure_column_async(
             conn,
-            "life_area_messages",
-            "created_ts",
-            "created_ts REAL NOT NULL DEFAULT 0",
-        )
-        await ensure_column_async(
-            conn,
             "users",
             "current_area_id",
             "current_area_id TEXT",
@@ -168,14 +142,10 @@ async def init_schema_async(conn: aiosqlite.Connection, db_path: str) -> None:
             "extracted_at",
             "extracted_at REAL",
         )
-        await ensure_column_async(
-            conn,
-            "life_area_messages",
-            "leaf_ids",
-            "leaf_ids TEXT",
-        )
-        # Migration: drop deprecated criteria table if it exists
+        # Migration: drop deprecated tables if they exist
         await conn.execute("DROP TABLE IF EXISTS criteria")
+        await conn.execute("DROP TABLE IF EXISTS life_area_messages")
+        await conn.execute("DROP TABLE IF EXISTS leaf_extraction_queue")
 
         await conn.commit()
         _db_initialized_paths.add(db_path)

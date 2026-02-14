@@ -1,16 +1,12 @@
-"""Area data repository managers: LifeAreaMessages and AreaSummaries."""
+"""Area data repository managers: AreaSummaries."""
 
-import json
-import logging
 import uuid
 from typing import Any
 
 import aiosqlite
 
 from .base import ORMBase
-from .models import AreaSummary, LifeAreaMessage
-
-logger = logging.getLogger(__name__)
+from .models import AreaSummary
 
 
 def _serialize_vector(vector: list[float]) -> bytes:
@@ -26,52 +22,6 @@ def _deserialize_vector(data: bytes) -> list[float]:
 
     count = len(data) // 4  # float is 4 bytes
     return list(struct.unpack(f"{count}f", data))
-
-
-class LifeAreaMessagesManager(ORMBase[LifeAreaMessage]):
-    _table = "life_area_messages"
-    _columns = ("id", "message_text", "area_id", "created_ts", "leaf_ids")
-    _area_column = "area_id"
-
-    @classmethod
-    async def list_by_area(
-        cls, area_id: uuid.UUID, conn: aiosqlite.Connection | None = None
-    ) -> list[LifeAreaMessage]:
-        return await cls._list_by_column(
-            "area_id",
-            str(area_id),
-            conn,
-            order_by="created_ts",
-        )
-
-    @classmethod
-    def _row_to_obj(cls, row: aiosqlite.Row) -> LifeAreaMessage:
-        leaf_ids = None
-        if row["leaf_ids"]:
-            try:
-                leaf_ids = json.loads(row["leaf_ids"])
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Invalid JSON in leaf_ids",
-                    extra={"message_id": row["id"]},
-                )
-        return LifeAreaMessage(
-            id=uuid.UUID(row["id"]),
-            message_text=row["message_text"],
-            area_id=uuid.UUID(row["area_id"]),
-            created_ts=row["created_ts"],
-            leaf_ids=leaf_ids,
-        )
-
-    @classmethod
-    def _obj_to_row(cls, data: LifeAreaMessage) -> dict[str, Any]:
-        return {
-            "id": str(data.id),
-            "message_text": data.message_text,
-            "area_id": str(data.area_id),
-            "created_ts": data.created_ts,
-            "leaf_ids": json.dumps(data.leaf_ids) if data.leaf_ids else None,
-        }
 
 
 class AreaSummariesManager(ORMBase[AreaSummary]):

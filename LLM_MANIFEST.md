@@ -9,7 +9,6 @@ This document describes all AI/LLM behavior in the interview assistant codebase.
 | `extract_target` | `gpt-5.1-codex-mini` | Fast intent classification (interview vs areas vs small_talk) |
 | `quick_evaluate` | `gpt-5.1-codex-mini` | Evaluate user answer for leaf (complete/partial/skipped) |
 | `generate_leaf_response` | `gpt-5.1-codex-mini` | Generate focused questions about single leaf |
-| `leaf_summary` | `gpt-5.1-codex-mini` | Extract summary from accumulated messages |
 | `small_talk_response` | `gpt-5.1-codex-mini` | Greetings, app questions, casual chat |
 | `completed_area_response` | `gpt-5.1-codex-mini` | Response when area already extracted |
 | `area_chat` | `gpt-5.1-codex-mini` | Hierarchical area management with tools |
@@ -25,7 +24,6 @@ This document describes all AI/LLM behavior in the interview assistant codebase.
 | `extract_target` | 0.0 | Deterministic classification |
 | `transcribe` | 0.0 | Deterministic transcription |
 | `quick_evaluate` | 0.0 | Deterministic evaluation |
-| `leaf_summary` | 0.2 | Low variance for summary extraction |
 | `area_chat` | 0.2 | Consistent tool-calling behavior |
 | `generate_leaf_response` | 0.5 | Natural conversational variation |
 | `small_talk_response` | 0.5 | Natural conversational variation |
@@ -42,7 +40,6 @@ This document describes all AI/LLM behavior in the interview assistant codebase.
 | Structured output | 1024 | `extract_target` |
 | Quick evaluate | 256 | `quick_evaluate` (status + reason only) |
 | Leaf response | 1024 | `generate_leaf_response` (short focused questions) |
-| Leaf summary | 512 | `leaf_summary` (brief summary extraction) |
 | Knowledge extraction | 4096 | `knowledge_extraction` (needs reasoning tokens) |
 | Conversational | 4096 | `small_talk_response`, `completed_area_response`, `area_chat` |
 | Transcription | 8192 | `transcribe` |
@@ -73,7 +70,6 @@ LLM instances are created via lazy-initialized getters in `src/infrastructure/ll
 | `get_llm_transcribe()` | gemini-2.5-flash-lite | 0.0 | 8192 | n/a | |
 | `get_llm_quick_evaluate()` | gpt-5.1-codex-mini | 0.0 | 256 | low | Structured output |
 | `get_llm_leaf_response()` | gpt-5.1-codex-mini | 0.5 | 1024 | default | |
-| `get_llm_leaf_summary()` | gpt-5.1-codex-mini | 0.2 | 512 | low | Structured output |
 | `get_llm_area_chat()` | gpt-5.1-codex-mini | 0.2 | 4096 | default | Tool-calling |
 | `get_llm_small_talk()` | gpt-5.1-codex-mini | 0.5 | 4096 | default | |
 
@@ -87,11 +83,7 @@ The extract worker pool creates its own LLM instance in `src/processes/extract/w
 |--------|-------|------------|-----------|-------|
 | `knowledge_extraction` | gpt-5.1-codex-mini | 4096 | low | Structured output |
 
-The leaf extract worker pool uses the cached `get_llm_leaf_summary()` getter:
-
-| Worker | Model | Max Tokens | Reasoning | Notes |
-|--------|-------|------------|-----------|-------|
-| `leaf_extract` | gpt-5.1-codex-mini | 512 | low | Summary extraction |
+Knowledge extraction is queued asynchronously when a leaf interview completes. The extract worker retrieves messages from `leaf_history` and extracts summaries and knowledge items.
 
 ## Prompt Locations
 
@@ -105,7 +97,6 @@ All prompts are centralized in `src/shared/prompts.py`:
 | Leaf followup (partial) | `PROMPT_LEAF_FOLLOWUP` |
 | Leaf transition (complete) | `PROMPT_LEAF_COMPLETE` |
 | All leaves done | `PROMPT_ALL_LEAVES_DONE` |
-| Leaf summary extraction | `PROMPT_LEAF_SUMMARY` |
 | Small talk response | `PROMPT_SMALL_TALK` |
 | Completed area response | `PROMPT_COMPLETED_AREA` (in completed_area_response.py) |
 | Hierarchical area management | `PROMPT_AREA_CHAT_TEMPLATE`, `build_area_chat_prompt()` |
@@ -196,11 +187,6 @@ The leaf interview flow uses focused prompts for each stage:
    - Output: Thank you + suggestion for next steps
    - ~200 tokens
 
-6. **Leaf Summary** (`PROMPT_LEAF_SUMMARY`): Extracts summary from messages
-   - Input: leaf path, accumulated messages
-   - Output: 1-2 sentence summary in third person
-   - ~300 tokens
-
 ### Token Comparison (Old vs New)
 
 | Scenario | Old (interview_analysis) | New (leaf flow) |
@@ -235,12 +221,11 @@ Non-retryable HTTP errors (400, 401, 403, 404, etc.) fail immediately.
 
 ### Applied to:
 - `extract_target.py` - Intent classification
-- `leaf_interview.py` - Quick evaluate and response generation
+- `leaf_interview.py` - Quick evaluate, response generation
 - `small_talk_response.py` - Small talk response
 - `completed_area_response.py` - Completed area response
 - `area_loop/nodes.py` - Area chat with tools
 - `transcribe/extract_text.py` - Audio transcription
-- `leaf_extract/worker.py` - Leaf summary extraction
 
 ## Known Limitations
 
@@ -264,10 +249,10 @@ class LLMClientBuilder:
     model: str
     temperature: float | None = None
     max_tokens: int | None = None
-    model_kwargs: dict = field(default_factory=dict)
+    reasoning: dict | None = None
 ```
 
 All parameters are passed through to ChatOpenAI. Use explicit temperatures for consistency.
 
-The `model_kwargs` parameter passes extra arguments to the model API. Common usage:
-- `{"reasoning": {"effort": "low"}}` - Minimize reasoning for structured output
+The `reasoning` parameter controls reasoning effort for GPT-5.x models:
+- `{"effort": "low"}` - Minimize reasoning for structured output

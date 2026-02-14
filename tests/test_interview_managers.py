@@ -89,6 +89,27 @@ class TestLeafCoverageManager:
         assert result.summary_text == "User has Python experience"
         assert result.vector == vector
 
+    @pytest.mark.asyncio
+    async def test_delete_by_root_area(self, temp_db):
+        """Should delete all coverage records for a root area."""
+        root_area_id = new_id()
+        leaf1_id, leaf2_id = new_id(), new_id()
+        now = get_timestamp()
+
+        for leaf_id in [leaf1_id, leaf2_id]:
+            coverage = db.LeafCoverage(
+                leaf_id=leaf_id,
+                root_area_id=root_area_id,
+                status="pending",
+                updated_at=now,
+            )
+            await db.LeafCoverageManager.create(leaf_id, coverage)
+
+        await db.LeafCoverageManager.delete_by_root_area(root_area_id)
+
+        result = await db.LeafCoverageManager.list_by_root_area(root_area_id)
+        assert len(result) == 0
+
 
 class TestActiveInterviewContextManager:
     """Tests for ActiveInterviewContextManager."""
@@ -104,7 +125,6 @@ class TestActiveInterviewContextManager:
             root_area_id=root_area_id,
             active_leaf_id=leaf_id,
             created_at=now,
-            message_ids=["msg1", "msg2"],
         )
         await db.ActiveInterviewContextManager.create(user_id, ctx)
 
@@ -112,33 +132,10 @@ class TestActiveInterviewContextManager:
         assert result is not None
         assert result.user_id == user_id
         assert result.active_leaf_id == leaf_id
-        assert result.message_ids == ["msg1", "msg2"]
-
-    @pytest.mark.asyncio
-    async def test_update_message_ids(self, temp_db):
-        """Should update message_ids list."""
-        user_id, root_area_id, leaf_id = new_id(), new_id(), new_id()
-        now = get_timestamp()
-
-        ctx = db.ActiveInterviewContext(
-            user_id=user_id,
-            root_area_id=root_area_id,
-            active_leaf_id=leaf_id,
-            created_at=now,
-            message_ids=[],
-        )
-        await db.ActiveInterviewContextManager.create(user_id, ctx)
-
-        await db.ActiveInterviewContextManager.update_message_ids(
-            user_id, ["msg1", "msg2", "msg3"]
-        )
-
-        result = await db.ActiveInterviewContextManager.get_by_user(user_id)
-        assert result.message_ids == ["msg1", "msg2", "msg3"]
 
     @pytest.mark.asyncio
     async def test_update_active_leaf(self, temp_db):
-        """Should update active leaf and reset message_ids."""
+        """Should update active leaf."""
         user_id, root_area_id = new_id(), new_id()
         leaf1_id, leaf2_id = new_id(), new_id()
         now = get_timestamp()
@@ -148,7 +145,6 @@ class TestActiveInterviewContextManager:
             root_area_id=root_area_id,
             active_leaf_id=leaf1_id,
             created_at=now,
-            message_ids=["old_msg"],
             question_text="Old question",
         )
         await db.ActiveInterviewContextManager.create(user_id, ctx)
@@ -160,7 +156,6 @@ class TestActiveInterviewContextManager:
         result = await db.ActiveInterviewContextManager.get_by_user(user_id)
         assert result.active_leaf_id == leaf2_id
         assert result.question_text == "New question"
-        assert result.message_ids == []  # Reset
 
     @pytest.mark.asyncio
     async def test_delete_by_user(self, temp_db):
@@ -182,229 +177,128 @@ class TestActiveInterviewContextManager:
         assert result is None
 
 
-class TestLeafExtractionQueueManager:
-    """Tests for LeafExtractionQueueManager."""
+class TestLeafHistoryManager:
+    """Tests for LeafHistoryManager."""
 
     @pytest.mark.asyncio
-    async def test_create_and_claim_pending(self, temp_db):
-        """Should create task and claim it atomically."""
-        task_id, leaf_id, root_area_id = new_id(), new_id(), new_id()
+    async def test_link_and_get_messages(self, temp_db):
+        """Should link history to leaf and retrieve messages."""
+        user_id = new_id()
+        leaf_id = new_id()
+        history_id = new_id()
         now = get_timestamp()
 
-        task = db.LeafExtractionQueueItem(
-            id=task_id,
-            leaf_id=leaf_id,
-            root_area_id=root_area_id,
-            message_ids=["msg1"],
-            created_at=now,
+        # Create history record
+        history = db.History(
+            id=history_id,
+            message_data={"role": "user", "content": "Hello"},
+            user_id=user_id,
+            created_ts=now,
         )
-        await db.LeafExtractionQueueManager.create(task_id, task)
+        await db.HistoriesManager.create(history_id, history)
 
-        # Claim the task
-        claimed = await db.LeafExtractionQueueManager.claim_pending(limit=1)
-        assert len(claimed) == 1
-        assert claimed[0].id == task_id
-        assert claimed[0].status == "processing"  # Now returns actual status
+        # Link to leaf
+        await db.LeafHistoryManager.link(leaf_id, history_id)
 
-        # Verify it's now processing in DB
-        # Try to claim again - should get nothing
-        claimed_again = await db.LeafExtractionQueueManager.claim_pending(limit=1)
-        assert len(claimed_again) == 0
+        # Get messages
+        messages = await db.LeafHistoryManager.get_messages(leaf_id)
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "Hello"
 
     @pytest.mark.asyncio
-    async def test_claim_pending_batch(self, temp_db):
-        """Should claim multiple tasks in one call."""
-        root_area_id = new_id()
+    async def test_get_messages_ordered_by_time(self, temp_db):
+        """Should return messages in chronological order."""
+        user_id = new_id()
+        leaf_id = new_id()
         now = get_timestamp()
 
-        # Create 3 tasks
+        # Create and link multiple messages
+        for i, content in enumerate(["First", "Second", "Third"]):
+            history_id = new_id()
+            history = db.History(
+                id=history_id,
+                message_data={"role": "user", "content": content},
+                user_id=user_id,
+                created_ts=now + i,
+            )
+            await db.HistoriesManager.create(history_id, history)
+            await db.LeafHistoryManager.link(leaf_id, history_id)
+
+        messages = await db.LeafHistoryManager.get_messages(leaf_id)
+        assert len(messages) == 3
+        assert messages[0]["content"] == "First"
+        assert messages[1]["content"] == "Second"
+        assert messages[2]["content"] == "Third"
+
+    @pytest.mark.asyncio
+    async def test_get_message_count(self, temp_db):
+        """Should return correct message count for a leaf."""
+        user_id = new_id()
+        leaf_id = new_id()
+        now = get_timestamp()
+
+        # Create and link 3 messages
         for i in range(3):
-            task = db.LeafExtractionQueueItem(
-                id=new_id(),
-                leaf_id=new_id(),
-                root_area_id=root_area_id,
-                message_ids=["msg"],
-                created_at=now + i,
+            history_id = new_id()
+            history = db.History(
+                id=history_id,
+                message_data={"role": "user", "content": f"Message {i}"},
+                user_id=user_id,
+                created_ts=now + i,
             )
-            await db.LeafExtractionQueueManager.create(task.id, task)
+            await db.HistoriesManager.create(history_id, history)
+            await db.LeafHistoryManager.link(leaf_id, history_id)
 
-        # Claim 2
-        claimed = await db.LeafExtractionQueueManager.claim_pending(limit=2)
-        assert len(claimed) == 2
-
-        # 1 should remain
-        remaining = await db.LeafExtractionQueueManager.claim_pending(limit=5)
-        assert len(remaining) == 1
+        count = await db.LeafHistoryManager.get_message_count(leaf_id)
+        assert count == 3
 
     @pytest.mark.asyncio
-    async def test_mark_completed(self, temp_db):
-        """Should mark task as completed with timestamp."""
-        task_id, leaf_id, root_area_id = new_id(), new_id(), new_id()
+    async def test_delete_by_leaf(self, temp_db):
+        """Should delete all history links for a leaf."""
+        user_id = new_id()
+        leaf_id = new_id()
+        history_id = new_id()
         now = get_timestamp()
 
-        task = db.LeafExtractionQueueItem(
-            id=task_id,
-            leaf_id=leaf_id,
-            root_area_id=root_area_id,
-            message_ids=["msg"],
-            created_at=now,
+        # Create and link history
+        history = db.History(
+            id=history_id,
+            message_data={"role": "user", "content": "Test"},
+            user_id=user_id,
+            created_ts=now,
         )
-        await db.LeafExtractionQueueManager.create(task_id, task)
+        await db.HistoriesManager.create(history_id, history)
+        await db.LeafHistoryManager.link(leaf_id, history_id)
 
-        completed_at = now + 10
-        await db.LeafExtractionQueueManager.mark_completed(task_id, completed_at)
+        # Delete links
+        await db.LeafHistoryManager.delete_by_leaf(leaf_id)
 
-        result = await db.LeafExtractionQueueManager.get_by_id(task_id)
-        assert result.status == "completed"
-        assert result.processed_at == completed_at
+        # Verify links deleted
+        messages = await db.LeafHistoryManager.get_messages(leaf_id)
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
-    async def test_mark_failed_increments_retry(self, temp_db):
-        """Should mark task as failed and increment retry count."""
-        task_id, leaf_id, root_area_id = new_id(), new_id(), new_id()
+    async def test_link_ignores_duplicate(self, temp_db):
+        """Should ignore duplicate links (INSERT OR IGNORE)."""
+        user_id = new_id()
+        leaf_id = new_id()
+        history_id = new_id()
         now = get_timestamp()
 
-        task = db.LeafExtractionQueueItem(
-            id=task_id,
-            leaf_id=leaf_id,
-            root_area_id=root_area_id,
-            message_ids=["msg"],
-            created_at=now,
+        # Create history
+        history = db.History(
+            id=history_id,
+            message_data={"role": "user", "content": "Test"},
+            user_id=user_id,
+            created_ts=now,
         )
-        await db.LeafExtractionQueueManager.create(task_id, task)
+        await db.HistoriesManager.create(history_id, history)
 
-        await db.LeafExtractionQueueManager.mark_failed(task_id)
+        # Link twice (should not raise)
+        await db.LeafHistoryManager.link(leaf_id, history_id)
+        await db.LeafHistoryManager.link(leaf_id, history_id)
 
-        result = await db.LeafExtractionQueueManager.get_by_id(task_id)
-        assert result.status == "failed"
-        assert result.retry_count == 1
-
-        # Fail again
-        await db.LeafExtractionQueueManager.mark_failed(task_id)
-        result = await db.LeafExtractionQueueManager.get_by_id(task_id)
-        assert result.retry_count == 2
-
-    @pytest.mark.asyncio
-    async def test_requeue_failed_under_max_retries(self, temp_db):
-        """Should requeue failed tasks under max retries."""
-        task_id, leaf_id, root_area_id = new_id(), new_id(), new_id()
-        now = get_timestamp()
-
-        task = db.LeafExtractionQueueItem(
-            id=task_id,
-            leaf_id=leaf_id,
-            root_area_id=root_area_id,
-            message_ids=["msg"],
-            created_at=now,
-            status="failed",
-            retry_count=2,
-        )
-        await db.LeafExtractionQueueManager.create(task_id, task)
-
-        # Requeue with max_retries=3
-        await db.LeafExtractionQueueManager.requeue_failed(max_retries=3)
-
-        result = await db.LeafExtractionQueueManager.get_by_id(task_id)
-        assert result.status == "pending"
-
-    @pytest.mark.asyncio
-    async def test_requeue_failed_skips_at_max_retries(self, temp_db):
-        """Should not requeue tasks at max retries."""
-        task_id, leaf_id, root_area_id = new_id(), new_id(), new_id()
-        now = get_timestamp()
-
-        task = db.LeafExtractionQueueItem(
-            id=task_id,
-            leaf_id=leaf_id,
-            root_area_id=root_area_id,
-            message_ids=["msg"],
-            created_at=now,
-            status="failed",
-            retry_count=3,  # At max
-        )
-        await db.LeafExtractionQueueManager.create(task_id, task)
-
-        # Requeue with max_retries=3
-        await db.LeafExtractionQueueManager.requeue_failed(max_retries=3)
-
-        result = await db.LeafExtractionQueueManager.get_by_id(task_id)
-        assert result.status == "failed"  # Still failed
-
-    @pytest.mark.asyncio
-    async def test_claim_pending_concurrent_no_overlap(self, temp_db):
-        """Concurrent claims should not return overlapping tasks."""
-        import asyncio
-
-        root_area_id = new_id()
-        now = get_timestamp()
-
-        # Create 4 tasks
-        task_ids = []
-        for i in range(4):
-            task = db.LeafExtractionQueueItem(
-                id=new_id(),
-                leaf_id=new_id(),
-                root_area_id=root_area_id,
-                message_ids=["msg"],
-                created_at=now + i,
-            )
-            await db.LeafExtractionQueueManager.create(task.id, task)
-            task_ids.append(task.id)
-
-        # Concurrent claims - each should get different tasks
-        results = await asyncio.gather(
-            db.LeafExtractionQueueManager.claim_pending(limit=2),
-            db.LeafExtractionQueueManager.claim_pending(limit=2),
-        )
-
-        # Collect all claimed task IDs
-        all_claimed = []
-        for result in results:
-            all_claimed.extend([t.id for t in result])
-
-        # Should have claimed 4 unique tasks total (no overlap)
-        assert len(all_claimed) == 4
-        assert len(set(all_claimed)) == 4  # All unique
-
-
-class TestLifeAreaMessagesManager:
-    """Tests for LifeAreaMessagesManager leaf_ids handling."""
-
-    @pytest.mark.asyncio
-    async def test_leaf_ids_round_trip(self, temp_db):
-        """Should correctly store and retrieve leaf_ids JSON."""
-        area_id = new_id()
-        msg_id = new_id()
-        leaf_ids = [str(new_id()), str(new_id())]
-
-        msg = db.LifeAreaMessage(
-            id=msg_id,
-            message_text="Test message",
-            area_id=area_id,
-            created_ts=get_timestamp(),
-            leaf_ids=leaf_ids,
-        )
-        await db.LifeAreaMessagesManager.create(msg_id, msg)
-
-        result = await db.LifeAreaMessagesManager.get_by_id(msg_id)
-        assert result is not None
-        assert result.leaf_ids == leaf_ids
-
-    @pytest.mark.asyncio
-    async def test_leaf_ids_none_handling(self, temp_db):
-        """Should handle None leaf_ids correctly."""
-        area_id = new_id()
-        msg_id = new_id()
-
-        msg = db.LifeAreaMessage(
-            id=msg_id,
-            message_text="Test message",
-            area_id=area_id,
-            created_ts=get_timestamp(),
-            leaf_ids=None,
-        )
-        await db.LifeAreaMessagesManager.create(msg_id, msg)
-
-        result = await db.LifeAreaMessagesManager.get_by_id(msg_id)
-        assert result is not None
-        assert result.leaf_ids is None
+        # Should still only have one message
+        count = await db.LeafHistoryManager.get_message_count(leaf_id)
+        assert count == 1

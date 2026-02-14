@@ -1,7 +1,8 @@
 import logging
+import uuid
 from typing import Annotated
 
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel
 
 from src.domain.models import User
@@ -17,6 +18,8 @@ class SaveHistoryState(BaseModel):
     user: User
     messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     is_successful: bool | None = None
+    active_leaf_id: uuid.UUID | None = None
+    completed_leaf_id: uuid.UUID | None = None  # Leaf just marked complete
 
 
 def _normalize_role(role: str) -> str:
@@ -68,5 +71,13 @@ async def save_history(state: SaveHistoryState) -> dict:
                     created_ts=created_ts,
                 ),
             )
+            # Link history to correct leaf based on message type
+            # When a leaf completes, select_next_leaf changes active_leaf_id BEFORE save_history
+            # So: User's answer → link to completed_leaf_id (the leaf they answered about)
+            #     AI's next question → link to active_leaf_id (the next leaf)
+            if state.completed_leaf_id and isinstance(msg, HumanMessage):
+                await db.LeafHistoryManager.link(state.completed_leaf_id, history_id)
+            elif state.active_leaf_id:
+                await db.LeafHistoryManager.link(state.active_leaf_id, history_id)
 
     return {}

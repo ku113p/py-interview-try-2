@@ -10,7 +10,6 @@ from langchain_openai import ChatOpenAI
 from src.config.settings import (
     MAX_TOKENS_CHAT,
     MAX_TOKENS_LEAF_RESPONSE,
-    MAX_TOKENS_LEAF_SUMMARY,
     MAX_TOKENS_QUICK_EVALUATE,
     MAX_TOKENS_STRUCTURED,
     MAX_TOKENS_TRANSCRIPTION,
@@ -18,7 +17,6 @@ from src.config.settings import (
     MODEL_AUDIO_TRANSCRIPTION,
     MODEL_EXTRACT_TARGET,
     MODEL_LEAF_RESPONSE,
-    MODEL_LEAF_SUMMARY,
     MODEL_QUICK_EVALUATE,
     MODEL_SMALL_TALK,
     TEMPERATURE_CONVERSATIONAL,
@@ -32,21 +30,21 @@ def _build_llm(
     model: str,
     temperature: float,
     max_tokens: int,
-    model_kwargs: dict | None = None,
+    reasoning: dict | None = None,
 ) -> ChatOpenAI:
     """Build an LLM with standard configuration."""
     return LLMClientBuilder(
         model,
         temperature=temperature,
         max_tokens=max_tokens,
-        model_kwargs=model_kwargs or {},
+        reasoning=reasoning,
     ).build()
 
 
 # Note: reasoning models need minimal reasoning for structured output to avoid
 # consuming all tokens on internal reasoning (LengthFinishReasonError)
 # Supported values: "low", "medium", "high" (gpt-5.1-codex-mini doesn't support "none")
-REASONING_MINIMAL = {"reasoning": {"effort": "low"}}
+REASONING_MINIMAL = {"effort": "low"}
 
 
 # Deterministic LLMs (temperature=0.0)
@@ -57,7 +55,7 @@ def get_llm_extract_target() -> ChatOpenAI:
         MODEL_EXTRACT_TARGET,
         TEMPERATURE_DETERMINISTIC,
         MAX_TOKENS_STRUCTURED,
-        model_kwargs=REASONING_MINIMAL,
+        reasoning=REASONING_MINIMAL,
     )
 
 
@@ -91,7 +89,7 @@ def get_llm_quick_evaluate() -> ChatOpenAI:
         MODEL_QUICK_EVALUATE,
         TEMPERATURE_DETERMINISTIC,
         MAX_TOKENS_QUICK_EVALUATE,
-        model_kwargs=REASONING_MINIMAL,
+        reasoning=REASONING_MINIMAL,
     )
 
 
@@ -100,15 +98,4 @@ def get_llm_leaf_response() -> ChatOpenAI:
     """Get LLM for generating focused questions about single leaves."""
     return _build_llm(
         MODEL_LEAF_RESPONSE, TEMPERATURE_CONVERSATIONAL, MAX_TOKENS_LEAF_RESPONSE
-    )
-
-
-@lru_cache(maxsize=1)
-def get_llm_leaf_summary() -> ChatOpenAI:
-    """Get LLM for extracting summaries from leaf messages."""
-    return _build_llm(
-        MODEL_LEAF_SUMMARY,
-        TEMPERATURE_STRUCTURED,
-        MAX_TOKENS_LEAF_SUMMARY,
-        model_kwargs=REASONING_MINIMAL,
     )

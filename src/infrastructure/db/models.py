@@ -30,15 +30,6 @@ class LifeArea:
 
 
 @dataclass
-class LifeAreaMessage:
-    id: uuid.UUID
-    message_text: str
-    area_id: uuid.UUID
-    created_ts: float
-    leaf_ids: list[str] | None = None  # JSON array of leaf UUIDs this message answers
-
-
-@dataclass
 class AreaSummary:
     id: uuid.UUID
     area_id: uuid.UUID
@@ -84,18 +75,3 @@ class ActiveInterviewContext:
     active_leaf_id: uuid.UUID
     created_at: float
     question_text: str | None = None
-    message_ids: list[str] | None = None  # JSON array of message IDs
-
-
-@dataclass
-class LeafExtractionQueueItem:
-    """An extraction task in the queue."""
-
-    id: uuid.UUID
-    leaf_id: uuid.UUID
-    root_area_id: uuid.UUID
-    message_ids: list[str]  # JSON array of message IDs
-    created_at: float
-    status: str = "pending"  # 'pending', 'processing', 'completed', 'failed'
-    retry_count: int = 0
-    processed_at: float | None = None

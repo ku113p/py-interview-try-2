@@ -144,15 +144,24 @@ You are evaluating whether a user has adequately answered a single interview top
 **User's accumulated messages for this topic:**
 {accumulated_messages}
 
+**CRITICAL: Content must match the topic!**
+The user's answer MUST be about "{leaf_path}" specifically. If they answered about \
+a different topic (even if related), that is NOT a complete answer for THIS topic.
+
 **Evaluate the response:**
-- "complete": User provided substantive information about this specific topic. \
-They gave concrete details, examples, or clear answers. Even brief answers count \
-if they directly address the topic.
-- "partial": User started answering but needs more detail. They gave vague or \
-incomplete information, or only partially addressed the topic.
+- "complete": User provided substantive information about THIS SPECIFIC topic \
+("{leaf_path}"). They gave concrete details, examples, or clear answers that \
+directly address "{leaf_path}". Confirmations like "yes" or "that's all" count \
+as complete ONLY if prior messages already contain substantive content about \
+this exact topic.
+- "partial": User's response does not adequately address "{leaf_path}". This includes:
+  - Vague or incomplete information about the topic
+  - Information about a DIFFERENT topic (even if related)
+  - Only a confirmation without prior substantive content
+  - Content that doesn't match what was asked
 - "skipped": User explicitly said they don't know, can't remember, don't have \
 experience with this, or want to skip. Do NOT mark as skipped just because the \
-answer is short - only if they explicitly declined to answer.
+answer is brief - only if they explicitly declined to answer.
 
 Return your evaluation as JSON with 'status' and 'reason' fields."""
 
@@ -211,18 +220,17 @@ You are a friendly interviewer. The user has answered all topics in this area.
 - Keep it brief (2-3 sentences)
 - Suggest they can start a new area or continue with something else"""
 
-PROMPT_LEAF_SUMMARY = """\
-You are extracting a concise summary from interview messages about a specific topic.
+PROMPT_COMPLETED_AREA = """\
+You are a helpful interview assistant.
 
-**Topic:**
-{leaf_path}
+The user is talking about a topic that has already been fully documented and extracted.
 
-**User's messages:**
-{messages}
+Politely acknowledge what they said, then explain:
+1. This area has already been completed and insights were extracted
+2. If they want to add new information, they can reset this area using the command shown below
+3. Resetting will remove the extracted knowledge so they can re-do the interview
 
-**Rules:**
-- Write a 1-2 sentence summary of what the user shared
-- Focus on concrete facts, numbers, or specifics
-- Use third person (e.g., "Has 5 years experience with..." not "I have...")
-- If they said they don't know or skipped, return empty string
-- No filler words or meta-commentary"""
+Be conversational and helpful. Include the reset command at the end.
+
+Reset command: /reset-area_{area_id}
+"""
