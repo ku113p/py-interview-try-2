@@ -59,25 +59,34 @@ async def save_history(state: SaveHistoryState) -> dict:
         extra={"user_id": str(state.user.id), "count": message_count},
     )
 
-    for created_ts, messages in messages_by_ts.items():
-        for msg in messages:
-            history_id = new_id()
-            await db.HistoriesManager.create(
-                history_id,
-                db.History(
-                    id=history_id,
-                    message_data=_message_to_dict(msg),
-                    user_id=state.user.id,
-                    created_ts=created_ts,
-                ),
-            )
-            # Link history to correct leaf based on message type
-            # When a leaf completes, select_next_leaf changes active_leaf_id BEFORE save_history
-            # So: User's answer → link to completed_leaf_id (the leaf they answered about)
-            #     AI's next question → link to active_leaf_id (the next leaf)
-            if state.completed_leaf_id and isinstance(msg, HumanMessage):
-                await db.LeafHistoryManager.link(state.completed_leaf_id, history_id)
-            elif state.active_leaf_id:
-                await db.LeafHistoryManager.link(state.active_leaf_id, history_id)
+    from src.infrastructure.db.connection import transaction
+
+    async with transaction() as conn:
+        for created_ts, messages in messages_by_ts.items():
+            for msg in messages:
+                history_id = new_id()
+                await db.HistoriesManager.create(
+                    history_id,
+                    db.History(
+                        id=history_id,
+                        message_data=_message_to_dict(msg),
+                        user_id=state.user.id,
+                        created_ts=created_ts,
+                    ),
+                    conn=conn,
+                    auto_commit=False,
+                )
+                # Link history to correct leaf based on message type
+                # When a leaf completes, select_next_leaf changes active_leaf_id BEFORE save_history
+                # So: User's answer → link to completed_leaf_id (the leaf they answered about)
+                #     AI's next question → link to active_leaf_id (the next leaf)
+                if state.completed_leaf_id and isinstance(msg, HumanMessage):
+                    await db.LeafHistoryManager.link(
+                        state.completed_leaf_id, history_id, conn=conn
+                    )
+                elif state.active_leaf_id:
+                    await db.LeafHistoryManager.link(
+                        state.active_leaf_id, history_id, conn=conn
+                    )
 
     return {}

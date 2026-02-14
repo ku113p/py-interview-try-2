@@ -234,3 +234,21 @@ Be conversational and helpful. Include the reset command at the end.
 
 Reset command: /reset-area_{area_id}
 """
+
+PROMPT_LEAF_SUMMARY = """\
+You are extracting a concise summary of what the user shared about a specific topic.
+
+**Topic:**
+{leaf_path}
+
+**Conversation about this topic:**
+{messages}
+
+**Instructions:**
+- Write a brief summary (2-4 sentences) capturing the key facts and details the user shared
+- Focus on specific, concrete information (names, dates, numbers, experiences)
+- Write in third person (e.g., "The user has..." or "They work at...")
+- If the user provided minimal info, keep the summary minimal
+- Do not add interpretations or information not mentioned by the user
+
+Return ONLY the summary text, no additional formatting or labels."""

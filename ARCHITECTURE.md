@@ -86,16 +86,19 @@ route_after_context_load
 **Node details:**
 - `load_interview_context`: Load/create active leaf context for user
 - `quick_evaluate`: Evaluate user response (complete/partial/skipped)
-- `update_coverage_status`: Mark leaf as covered/skipped in leaf_coverage
+- `update_coverage_status`: Mark leaf as covered/skipped; extracts and saves summary with embedding when covered
 - `select_next_leaf`: Stay on current (partial) or pick next uncovered leaf
 - `generate_leaf_response`: Generate focused question or transition message
 - `completed_area_response`: Handle already-extracted areas
+
+**Inline summary extraction:**
+When a leaf is marked as "covered", `update_coverage_status` extracts a 2-4 sentence summary of the user's responses using `PROMPT_LEAF_SUMMARY`. The summary and its embedding vector are saved to `leaf_coverage.summary_text` and `leaf_coverage.vector`. This enables the knowledge extraction worker to use pre-extracted summaries instead of re-processing raw messages.
 
 **Benefits:**
 - O(1) token growth per turn (only current leaf + accumulated messages)
 - Clearer, more focused questions
 - Per-leaf coverage persistence
-- Inline extraction (no async worker pool)
+- Inline summary extraction (summaries available immediately when leaf completes)
 
 ## Command Handling
 
@@ -146,6 +149,7 @@ Tool-calling loop for hierarchical area management.
 - `area_end`: Finalize with success flag
 - Max 10 iterations (recursion limit: 23)
 - Sub-areas are created using `parent_id` to form a tree structure
+- **Auto-set current area**: When creating a root area (no parent), it's automatically set as the user's `current_area_id`. This ensures the interview flow has a valid area immediately after creation.
 
 ### knowledge_extraction
 Post-interview knowledge extraction (triggered when all leaves covered).

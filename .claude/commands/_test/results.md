@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |--------|-------|
-| Total Cases | 10 |
-| Passed | 10 |
+| Total Cases | 11 |
+| Passed | 11 |
 | Failed | 0 |
 | Pass Rate | 100% |
 
@@ -13,16 +13,17 @@
 
 | # | Case Name | Status | Areas | Sub-Areas | Summaries | Knowledge | Last Run |
 |---|-----------|--------|-------|-----------|-----------|-----------|----------|
-| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 1/true | 4/true | 2026-02-13 03:09 |
-| 5 | Quick Interaction | PASS | 1/1 | 0/0-0 | 0/false | 0/false | 2026-02-13 03:09 |
-| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 1/true | 5/true | 2026-02-13 03:09 |
-| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-13 03:09 |
-| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 1/true | 7/true | 2026-02-13 03:09 |
-| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-13 03:09 |
-| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-13 03:09 |
-| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-13 03:09 |
-| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 1/true | 5/true | 2026-02-13 03:09 |
-| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 1/true | 4/true | 2026-02-13 03:09 |
+| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 2/true | 4/true | 2026-02-15 00:35 |
+| 5 | Quick Interaction | PASS | 1/1 | 0/0-0 | 0/false | 0/false | 2026-02-15 00:35 |
+| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 2/true | 5/true | 2026-02-15 00:35 |
+| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-15 00:36 |
+| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 3/true | 7/true | 2026-02-15 00:35 |
+| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-15 00:35 |
+| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-15 00:35 |
+| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-15 00:35 |
+| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 2/true | 5/true | 2026-02-15 00:35 |
+| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 2/true | 5/true | 2026-02-15 00:36 |
+| 27 | Multi-Turn Leaf Interview | PASS | 2/2 | 1/1-1 | 1/true | 3/true | 2026-02-15 00:36 |
 
 ## Test Case Descriptions
 
@@ -38,6 +39,7 @@
 | 24 | Small Talk Flow | Greeting/app questions before transitioning to area creation |
 | 25 | Completed Area Message | Messaging a completed area shows completion notice |
 | 26 | Reset Area Command | Completed area notification with reset command suggestion |
+| 27 | Multi-Turn Leaf Interview | Leaf interview spanning multiple partial responses before completion |
 
 ## Expected Format
 
@@ -61,6 +63,22 @@ Test cases use the following expected fields:
 - `knowledge` - Boolean: expect user_knowledge_areas > 0
 
 ## Recent Changes
+
+### 2026-02-15: Fixed Test 26 + Added Test 27
+
+**Fix: Auto-set current area on root creation**
+- `LifeAreaMethods.create` now automatically sets `current_area_id` when creating a root area (no parent)
+- This ensures the leaf interview flow has a valid area to work with immediately after creation
+- Fixed Test 26 which was failing because `current_area_id` was not set after area creation
+
+**New: Test 27 - Multi-Turn Leaf Interview**
+- Tests partial → partial → complete flow across multiple messages
+- Verifies that vague responses are marked "partial" and detailed responses complete the leaf
+
+**Other changes:**
+- Added inline leaf summary extraction (summaries saved when leaf completes)
+- Used transactions for atomic DB operations in leaf interview nodes
+- Added error handling with logging in leaf interview nodes
 
 ### 2026-02-13: Fixed Leaf Interview Flow Issues
 
@@ -115,6 +133,9 @@ Test cases use the following expected fields:
 - Fixed token limit for knowledge extraction (1024 -> 4096)
 
 ## Resolved Issues
+
+### Test 26 - Auto-set Current Area (Fixed 2026-02-15)
+After creating a root area with sub-areas, the LLM did not call `set_current_area`. The leaf interview then used a random UUID instead of the created area. Fixed by auto-setting `current_area_id` in `LifeAreaMethods.create` when creating root areas.
 
 ### Leaf Interview Flow Issues (Fixed 2026-02-13)
 

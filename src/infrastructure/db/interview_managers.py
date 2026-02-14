@@ -54,12 +54,17 @@ class LeafCoverageManager(ORMBase[LeafCoverage]):
         conn: aiosqlite.Connection | None = None,
         auto_commit: bool = True,
     ):
-        """Create a leaf coverage record. Uses leaf_id as primary key (no id column)."""
+        """Create a leaf coverage record if not exists. Uses leaf_id as primary key.
+
+        Uses INSERT OR IGNORE to avoid race conditions when concurrent requests
+        attempt to create the same record - the first write wins and subsequent
+        attempts are safely ignored without overwriting existing data.
+        """
         values = cls._obj_to_row(data)
         columns = ", ".join(values.keys())
         placeholders = ", ".join(["?"] * len(values))
         query = (
-            f"INSERT OR REPLACE INTO {cls._table} ({columns}) VALUES ({placeholders})"
+            f"INSERT OR IGNORE INTO {cls._table} ({columns}) VALUES ({placeholders})"
         )
         async with _with_conn(conn) as c:
             await c.execute(query, tuple(values.values()))
@@ -81,8 +86,14 @@ class LeafCoverageManager(ORMBase[LeafCoverage]):
     async def list_by_root_area(
         cls, root_area_id: uuid.UUID, conn: aiosqlite.Connection | None = None
     ) -> list[LeafCoverage]:
-        """List all leaf coverage records for a root area."""
-        return await cls._list_by_column("root_area_id", str(root_area_id), conn)
+        """List all leaf coverage records for a root area.
+
+        Results are ordered by updated_at to ensure deterministic leaf selection
+        when iterating through uncovered leaves.
+        """
+        return await cls._list_by_column(
+            "root_area_id", str(root_area_id), conn, order_by="updated_at"
+        )
 
     @classmethod
     async def update_status(

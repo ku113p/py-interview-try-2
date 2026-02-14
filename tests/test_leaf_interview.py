@@ -1,7 +1,7 @@
 """Unit tests for leaf interview nodes."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -183,13 +183,14 @@ class TestUpdateCoverageStatus:
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_all_leaves_done(self):
-        """Should return empty dict when all leaves are done."""
+        """Should return is_successful when all leaves are done."""
         user = User(id=new_id(), mode=InputMode.auto)
         state = _create_state(user, new_id(), all_leaves_done=True)
+        mock_llm = MagicMock()
 
-        result = await update_coverage_status(state)
+        result = await update_coverage_status(state, mock_llm)
 
-        assert result == {}
+        assert result == {"is_successful": True}
 
     @pytest.mark.asyncio
     async def test_marks_leaf_covered_when_complete(self, temp_db):
@@ -216,7 +217,13 @@ class TestUpdateCoverageStatus:
             leaf_evaluation=LeafEvaluation(status="complete", reason="All answered"),
         )
 
-        result = await update_coverage_status(state)
+        # Mock LLM for summary extraction
+        mock_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "User discussed their career goals."
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        result = await update_coverage_status(state, mock_llm)
 
         # Returns completed_leaf_id when leaf is marked complete (for async extraction)
         assert result == {"completed_leaf_id": leaf_id}
@@ -224,6 +231,77 @@ class TestUpdateCoverageStatus:
         # Verify coverage status was updated
         updated_coverage = await db.LeafCoverageManager.get_by_id(leaf_id)
         assert updated_coverage.status == "covered"
+
+    @pytest.mark.asyncio
+    async def test_summary_saved_to_leaf_coverage(self, temp_db):
+        """Should save summary and vector to leaf_coverage when leaf completes."""
+        user_id, area_id, leaf_id = new_id(), new_id(), new_id()
+        user = User(id=user_id, mode=InputMode.auto)
+        await _setup_leaf_with_history(user_id, area_id, leaf_id)
+
+        state = _create_state(
+            user,
+            area_id,
+            active_leaf_id=leaf_id,
+            leaf_evaluation=LeafEvaluation(status="complete", reason="All answered"),
+        )
+        mock_llm, expected_vector = _mock_llm_and_embeddings()
+
+        with patch("src.infrastructure.embeddings.get_embedding_client") as mock_get:
+            mock_get.return_value = mock_llm._embed_client
+            result = await update_coverage_status(state, mock_llm)
+
+        assert result == {"completed_leaf_id": leaf_id}
+        updated_coverage = await db.LeafCoverageManager.get_by_id(leaf_id)
+        assert updated_coverage.status == "covered"
+        assert updated_coverage.summary_text == "User has 5 years of Python experience."
+        assert updated_coverage.vector == expected_vector
+
+
+def _mock_llm_and_embeddings():
+    """Create mock LLM and embedding client for summary extraction tests."""
+    mock_llm = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = "User has 5 years of Python experience."
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    expected_vector = [0.1, 0.2, 0.3]
+    mock_embed_client = AsyncMock()
+    mock_embed_client.aembed_query.return_value = expected_vector
+    mock_llm._embed_client = mock_embed_client
+    return mock_llm, expected_vector
+
+
+async def _setup_leaf_with_history(user_id, area_id, leaf_id):
+    """Create area, leaf, coverage, and history records for summary tests."""
+    from src.shared.timestamp import get_timestamp
+
+    area = db.LifeArea(id=area_id, title="Career", parent_id=None, user_id=user_id)
+    await db.LifeAreasManager.create(area_id, area)
+    leaf = db.LifeArea(id=leaf_id, title="Skills", parent_id=area_id, user_id=user_id)
+    await db.LifeAreasManager.create(leaf_id, leaf)
+
+    now = get_timestamp()
+    coverage = db.LeafCoverage(
+        leaf_id=leaf_id, root_area_id=area_id, status="active", updated_at=now
+    )
+    await db.LeafCoverageManager.create(leaf_id, coverage)
+
+    # Create and link history messages
+    for i, (role, content) in enumerate(
+        [
+            ("assistant", "What Python skills?"),
+            ("user", "I have 5 years Python experience."),
+        ]
+    ):
+        hist_id = new_id()
+        hist = db.History(
+            id=hist_id,
+            message_data={"role": role, "content": content},
+            user_id=user_id,
+            created_ts=now + i,
+        )
+        await db.HistoriesManager.create(hist_id, hist)
+        await db.LeafHistoryManager.link(leaf_id, hist_id)
 
 
 async def _setup_two_leaves_with_coverage(user_id, area_id, leaf1_status="covered"):
@@ -260,13 +338,13 @@ class TestSelectNextLeaf:
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_all_done(self):
-        """Should return empty dict when all leaves already done."""
+        """Should return is_successful when all leaves already done."""
         user = User(id=new_id(), mode=InputMode.auto)
         state = _create_state(user, new_id(), all_leaves_done=True)
 
         result = await select_next_leaf(state)
 
-        assert result == {}
+        assert result == {"is_successful": True}
 
     @pytest.mark.asyncio
     async def test_stays_on_current_when_partial(self):

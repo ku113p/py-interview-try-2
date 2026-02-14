@@ -9,6 +9,7 @@ This document describes all AI/LLM behavior in the interview assistant codebase.
 | `extract_target` | `gpt-5.1-codex-mini` | Fast intent classification (interview vs areas vs small_talk) |
 | `quick_evaluate` | `gpt-5.1-codex-mini` | Evaluate user answer for leaf (complete/partial/skipped) |
 | `generate_leaf_response` | `gpt-5.1-codex-mini` | Generate focused questions about single leaf |
+| `leaf_summary` | `gpt-5.1-codex-mini` | Extract summary when leaf completes |
 | `small_talk_response` | `gpt-5.1-codex-mini` | Greetings, app questions, casual chat |
 | `completed_area_response` | `gpt-5.1-codex-mini` | Response when area already extracted |
 | `area_chat` | `gpt-5.1-codex-mini` | Hierarchical area management with tools |
@@ -26,6 +27,7 @@ This document describes all AI/LLM behavior in the interview assistant codebase.
 | `quick_evaluate` | 0.0 | Deterministic evaluation |
 | `area_chat` | 0.2 | Consistent tool-calling behavior |
 | `generate_leaf_response` | 0.5 | Natural conversational variation |
+| `leaf_summary` | 0.5 | Natural variation in summary phrasing |
 | `small_talk_response` | 0.5 | Natural conversational variation |
 | `completed_area_response` | 0.5 | Natural conversational variation |
 
@@ -96,6 +98,7 @@ All prompts are centralized in `src/shared/prompts.py`:
 | Leaf question (initial) | `PROMPT_LEAF_QUESTION` |
 | Leaf followup (partial) | `PROMPT_LEAF_FOLLOWUP` |
 | Leaf transition (complete) | `PROMPT_LEAF_COMPLETE` |
+| Leaf summary extraction | `PROMPT_LEAF_SUMMARY` |
 | All leaves done | `PROMPT_ALL_LEAVES_DONE` |
 | Small talk response | `PROMPT_SMALL_TALK` |
 | Completed area response | `PROMPT_COMPLETED_AREA` (in completed_area_response.py) |
@@ -183,7 +186,13 @@ The leaf interview flow uses focused prompts for each stage:
    - Output: Brief ack + question for next topic
    - ~300 tokens
 
-5. **All Leaves Done** (`PROMPT_ALL_LEAVES_DONE`): Completion message
+5. **Leaf Summary** (`PROMPT_LEAF_SUMMARY`): Extracts summary when leaf is complete
+   - Input: leaf path, accumulated conversation messages
+   - Output: 2-4 sentence summary of user's responses for this topic
+   - ~400 tokens
+   - Summary is saved to `leaf_coverage.summary_text` with embedding vector
+
+6. **All Leaves Done** (`PROMPT_ALL_LEAVES_DONE`): Completion message
    - Output: Thank you + suggestion for next steps
    - ~200 tokens
 

@@ -16,6 +16,7 @@ from src.shared.prompts import (
     PROMPT_LEAF_COMPLETE,
     PROMPT_LEAF_FOLLOWUP,
     PROMPT_LEAF_QUESTION,
+    PROMPT_LEAF_SUMMARY,
     PROMPT_QUICK_EVALUATE,
 )
 from src.shared.retry import invoke_with_retry
@@ -77,7 +78,9 @@ async def _get_next_uncovered_leaf(
 
 async def _prompt_llm(llm: ChatOpenAI, prompt: str, user_msg: str) -> str:
     """Send prompt to LLM and return response content."""
-    messages = [SystemMessage(content=prompt), {"role": "user", "content": user_msg}]
+    from langchain_core.messages import HumanMessage
+
+    messages = [SystemMessage(content=prompt), HumanMessage(content=user_msg)]
     response = await invoke_with_retry(lambda: llm.ainvoke(messages))
     return response.content
 
@@ -114,6 +117,8 @@ async def _create_leaf_context(
     user_id: uuid.UUID, area_id: uuid.UUID, leaf: SubAreaInfo
 ) -> None:
     """Create new interview context for a leaf."""
+    from src.infrastructure.db.connection import transaction
+
     now = get_timestamp()
     ctx = db.ActiveInterviewContext(
         user_id=user_id,
@@ -121,8 +126,9 @@ async def _create_leaf_context(
         active_leaf_id=leaf.area.id,
         created_at=now,
     )
-    await db.ActiveInterviewContextManager.create(user_id, ctx)
-    await db.LeafCoverageManager.update_status(leaf.area.id, "active", now)
+    async with transaction() as conn:
+        await db.ActiveInterviewContextManager.create(user_id, ctx, conn=conn)
+        await db.LeafCoverageManager.update_status(leaf.area.id, "active", now, conn)
 
 
 def _find_existing_context_state(
@@ -152,9 +158,8 @@ async def _handle_no_next_leaf(
     return _build_leaf_state(None)
 
 
-async def load_interview_context(state: LeafInterviewState):
-    """Load or create active interview context for the user."""
-    user_id, area_id = state.user.id, state.area_id
+async def _load_or_create_context(user_id: uuid.UUID, area_id: uuid.UUID) -> dict:
+    """Load existing context or create new one for the user."""
     leaf_areas = await _get_leaf_areas_for_root(area_id)
     if not leaf_areas:
         logger.info("No leaf areas found", extra={"area_id": str(area_id)})
@@ -176,6 +181,19 @@ async def load_interview_context(state: LeafInterviewState):
     return _build_leaf_state(next_leaf)
 
 
+async def load_interview_context(state: LeafInterviewState):
+    """Load or create active interview context for the user."""
+    user_id, area_id = state.user.id, state.area_id
+    try:
+        return await _load_or_create_context(user_id, area_id)
+    except Exception:
+        logger.exception(
+            "Failed to load interview context",
+            extra={"user_id": str(user_id), "area_id": str(area_id)},
+        )
+        return _build_leaf_state(None)
+
+
 def _format_history_messages(messages: list[dict]) -> list[str]:
     """Format history message dicts as text strings."""
     texts = []
@@ -186,22 +204,22 @@ def _format_history_messages(messages: list[dict]) -> list[str]:
     return texts
 
 
-async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
-    """Evaluate if user has fully answered the current leaf topic."""
-    if state.all_leaves_done or not state.active_leaf_id:
-        return {"leaf_evaluation": None}
-
-    # Get all messages for this leaf from leaf_history
-    leaf_messages = await db.LeafHistoryManager.get_messages(state.active_leaf_id)
-    accumulated_texts = _format_history_messages(leaf_messages)
-
-    # Add the current user message (not yet saved to history)
-    current_messages = filter_tool_messages(state.messages)
+def _accumulate_with_current(
+    leaf_messages: list[dict], current_messages: list
+) -> list[str]:
+    """Build accumulated texts from history messages plus current user message."""
+    texts = _format_history_messages(leaf_messages)
     if current_messages:
-        accumulated_texts.append(
-            f"User: {normalize_content(current_messages[-1].content)}"
-        )
+        texts.append(f"User: {normalize_content(current_messages[-1].content)}")
+    return texts
 
+
+async def _evaluate_leaf_response(
+    state: LeafInterviewState, llm: ChatOpenAI, leaf_messages: list[dict]
+) -> LeafEvaluation:
+    """Run LLM evaluation on accumulated messages."""
+    current_messages = filter_tool_messages(state.messages)
+    accumulated_texts = _accumulate_with_current(leaf_messages, current_messages)
     leaf_path = await get_leaf_path(state.active_leaf_id, state.area_id)
     prompt = PROMPT_QUICK_EVALUATE.format(
         leaf_path=leaf_path,
@@ -216,6 +234,24 @@ async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
     result = await invoke_with_retry(lambda: structured_llm.ainvoke(messages))
     if not isinstance(result, LeafEvaluation):
         result = LeafEvaluation.model_validate(result)
+    return result
+
+
+async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
+    """Evaluate if user has fully answered the current leaf topic."""
+    if state.all_leaves_done or not state.active_leaf_id:
+        return {"leaf_evaluation": None, "is_successful": True}
+
+    try:
+        leaf_messages = await db.LeafHistoryManager.get_messages(state.active_leaf_id)
+    except Exception:
+        logger.exception(
+            "Failed to get leaf messages for evaluation",
+            extra={"leaf_id": str(state.active_leaf_id)},
+        )
+        return {"leaf_evaluation": None, "is_successful": True}
+
+    result = await _evaluate_leaf_response(state, llm, leaf_messages)
     logger.info(
         "Evaluation complete",
         extra={"leaf_id": str(state.active_leaf_id), "status": result.status},
@@ -223,42 +259,109 @@ async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
     return {"leaf_evaluation": result}
 
 
-async def _mark_leaf_complete(
-    state: LeafInterviewState, evaluation: LeafEvaluation
+async def _extract_leaf_summary(
+    state: LeafInterviewState, llm: ChatOpenAI
+) -> str | None:
+    """Extract a summary of the user's responses for this leaf."""
+    from langchain_core.messages import HumanMessage
+
+    leaf_messages = await db.LeafHistoryManager.get_messages(state.active_leaf_id)
+    if not leaf_messages:
+        return None
+
+    # Add current user message not yet in history
+    current_messages = filter_tool_messages(state.messages)
+    message_texts = _format_history_messages(leaf_messages)
+    if current_messages:
+        message_texts.append(f"User: {normalize_content(current_messages[-1].content)}")
+
+    if not message_texts:
+        return None
+
+    leaf_path = await get_leaf_path(state.active_leaf_id, state.area_id)
+    prompt = PROMPT_LEAF_SUMMARY.format(
+        leaf_path=leaf_path,
+        messages="\n\n".join(message_texts),
+    )
+    messages = [SystemMessage(content=prompt), HumanMessage(content="Extract summary.")]
+    response = await invoke_with_retry(lambda: llm.ainvoke(messages))
+    return normalize_content(response.content)
+
+
+async def _save_leaf_summary(
+    state: LeafInterviewState, llm: ChatOpenAI, now: float
 ) -> None:
-    """Mark leaf as covered/skipped."""
+    """Extract and save summary for a covered leaf. Errors are logged and suppressed."""
+    from src.infrastructure.embeddings import get_embedding_client
+
+    summary = await _extract_leaf_summary(state, llm)
+    if not summary:
+        return
+    embed_client = get_embedding_client()
+    vector = await invoke_with_retry(lambda: embed_client.aembed_query(summary))
+    await db.LeafCoverageManager.save_summary(
+        state.active_leaf_id, summary, vector, now
+    )
+    logger.info(
+        "Saved leaf summary",
+        extra={"leaf_id": str(state.active_leaf_id), "summary_len": len(summary)},
+    )
+
+
+async def _mark_leaf_complete(
+    state: LeafInterviewState, evaluation: LeafEvaluation, llm: ChatOpenAI
+) -> None:
+    """Mark leaf as covered/skipped and extract summary if covered."""
     now = get_timestamp()
     status = "covered" if evaluation.status == "complete" else "skipped"
+
+    if status == "covered":
+        try:
+            await _save_leaf_summary(state, llm, now)
+        except Exception:
+            logger.exception(
+                "Failed to extract leaf summary",
+                extra={"leaf_id": str(state.active_leaf_id)},
+            )
+
     await db.LeafCoverageManager.update_status(state.active_leaf_id, status, now)
     logger.info(
         "Leaf marked as %s", status, extra={"leaf_id": str(state.active_leaf_id)}
     )
 
 
-async def update_coverage_status(state: LeafInterviewState):
+async def update_coverage_status(state: LeafInterviewState, llm: ChatOpenAI):
     """Update coverage status based on evaluation.
 
-    Returns completed_leaf_id when a leaf is marked complete/skipped,
-    so the worker can queue extraction.
+    Extracts and saves a summary when a leaf is marked complete, then returns
+    completed_leaf_id so the worker can queue extraction.
     """
     if state.all_leaves_done or not state.active_leaf_id:
-        return {}
+        return {"is_successful": True}
 
     evaluation = state.leaf_evaluation
     if evaluation and evaluation.status in ("complete", "skipped"):
-        await _mark_leaf_complete(state, evaluation)
+        await _mark_leaf_complete(state, evaluation, llm)
         return {"completed_leaf_id": state.active_leaf_id}
     return {}
 
 
-async def select_next_leaf(state: LeafInterviewState):
-    """Select the next leaf to ask about, or stay on current if partial."""
-    if state.all_leaves_done:
-        return {}
-    evaluation = state.leaf_evaluation
-    if evaluation and evaluation.status == "partial":
-        return {"all_leaves_done": False, "completed_leaf_path": None}
+async def _transition_to_next_leaf(user_id: uuid.UUID, next_leaf: SubAreaInfo) -> None:
+    """Update DB to transition to the next leaf in a transaction."""
+    from src.infrastructure.db.connection import transaction
 
+    now = get_timestamp()
+    async with transaction() as conn:
+        await db.ActiveInterviewContextManager.update_active_leaf(
+            user_id, next_leaf.area.id, None, conn=conn
+        )
+        await db.LeafCoverageManager.update_status(
+            next_leaf.area.id, "active", now, conn=conn
+        )
+
+
+async def _find_and_transition_to_next(state: LeafInterviewState) -> dict:
+    """Find next uncovered leaf and transition to it, or mark all done."""
     leaf_id = state.active_leaf_id
     completed_leaf_path = (
         await get_leaf_path(leaf_id, state.area_id) if leaf_id else None
@@ -270,16 +373,30 @@ async def select_next_leaf(state: LeafInterviewState):
         await db.ActiveInterviewContextManager.delete_by_user(state.user.id)
         logger.info("All leaves completed", extra={"area_id": str(state.area_id)})
         return _build_leaf_state(
-            None, {"completed_leaf_path": completed_leaf_path, "is_fully_covered": True}
+            None,
+            {"completed_leaf_path": completed_leaf_path, "is_fully_covered": True},
         )
 
-    now = get_timestamp()
-    await db.ActiveInterviewContextManager.update_active_leaf(
-        state.user.id, next_leaf.area.id, None
-    )
-    await db.LeafCoverageManager.update_status(next_leaf.area.id, "active", now)
+    await _transition_to_next_leaf(state.user.id, next_leaf)
     logger.info("Moving to next leaf", extra={"new_leaf_path": next_leaf.path})
     return _build_leaf_state(next_leaf, {"completed_leaf_path": completed_leaf_path})
+
+
+async def select_next_leaf(state: LeafInterviewState):
+    """Select the next leaf to ask about, or stay on current if partial."""
+    if state.all_leaves_done:
+        return {"is_successful": True}
+    if state.leaf_evaluation and state.leaf_evaluation.status == "partial":
+        return {"all_leaves_done": False, "completed_leaf_path": None}
+
+    try:
+        return await _find_and_transition_to_next(state)
+    except Exception:
+        logger.exception(
+            "Failed to select next leaf",
+            extra={"area_id": str(state.area_id), "user_id": str(state.user.id)},
+        )
+        return {"is_successful": False}
 
 
 async def _generate_response_content(
@@ -327,9 +444,16 @@ async def generate_leaf_response(state: LeafInterviewState, llm: ChatOpenAI):
     question_text = normalize_content(content)
 
     if state.active_leaf_id:
-        await db.ActiveInterviewContextManager.update_active_leaf(
-            state.user.id, state.active_leaf_id, question_text
-        )
+        try:
+            await db.ActiveInterviewContextManager.update_active_leaf(
+                state.user.id, state.active_leaf_id, question_text
+            )
+        except Exception:
+            logger.exception(
+                "Failed to update active leaf context",
+                extra={"leaf_id": str(state.active_leaf_id)},
+            )
+            # Continue with degraded behavior - response still generated
 
     logger.info(
         "Generated response",

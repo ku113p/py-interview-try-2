@@ -24,7 +24,9 @@ def build_leaf_interview_graph(llm_evaluate: ChatOpenAI, llm_response: ChatOpenA
     # Add nodes
     builder.add_node("load_interview_context", load_interview_context)
     builder.add_node("quick_evaluate", partial(quick_evaluate, llm=llm_evaluate))
-    builder.add_node("update_coverage_status", update_coverage_status)
+    builder.add_node(
+        "update_coverage_status", partial(update_coverage_status, llm=llm_response)
+    )
     builder.add_node("select_next_leaf", select_next_leaf)
     builder.add_node(
         "generate_leaf_response", partial(generate_leaf_response, llm=llm_response)

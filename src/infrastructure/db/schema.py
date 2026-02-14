@@ -39,15 +39,6 @@ _SCHEMA_SQL = """
         ON life_areas(user_id);
     CREATE INDEX IF NOT EXISTS life_areas_parent_id_idx
         ON life_areas(parent_id);
-    CREATE TABLE IF NOT EXISTS area_summaries (
-        id TEXT PRIMARY KEY,
-        area_id TEXT NOT NULL,
-        summary_text TEXT NOT NULL,
-        vector BLOB NOT NULL,
-        created_ts REAL NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS area_summaries_area_id_idx
-        ON area_summaries(area_id);
     CREATE TABLE IF NOT EXISTS user_knowledge (
         id TEXT PRIMARY KEY,
         description TEXT NOT NULL,
@@ -65,6 +56,15 @@ _SCHEMA_SQL = """
         ON user_knowledge_areas(user_id);
     CREATE INDEX IF NOT EXISTS user_knowledge_areas_area_id_idx
         ON user_knowledge_areas(area_id);
+    CREATE TABLE IF NOT EXISTS area_summaries (
+        id TEXT PRIMARY KEY,
+        area_id TEXT NOT NULL,
+        summary_text TEXT NOT NULL,
+        vector TEXT NOT NULL,
+        created_ts REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS area_summaries_area_id_idx
+        ON area_summaries(area_id);
 
     -- Leaf coverage tracking: status of each leaf area in an interview
     CREATE TABLE IF NOT EXISTS leaf_coverage (
@@ -72,7 +72,7 @@ _SCHEMA_SQL = """
         root_area_id TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
         summary_text TEXT,
-        vector BLOB,
+        vector TEXT,
         updated_at REAL NOT NULL
     );
     CREATE INDEX IF NOT EXISTS leaf_coverage_root_area_idx
