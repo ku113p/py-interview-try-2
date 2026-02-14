@@ -25,17 +25,14 @@ def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> State:
     Args:
         user: User object.
         area_id: Area UUID.
-        **kwargs: Optional State fields (messages, active_leaf_id, active_leaf_path,
-                  accumulated_message_ids, leaf_evaluation, question_text,
-                  all_leaves_done, completed_leaf_path).
+        **kwargs: Optional State fields (messages, active_leaf_id,
+                  leaf_evaluation, question_text, all_leaves_done, completed_leaf_path).
     """
     defaults = {
         "messages": [],
         "messages_to_save": {},
         "is_fully_covered": False,
         "active_leaf_id": None,
-        "active_leaf_path": None,
-        "accumulated_message_ids": None,
         "leaf_evaluation": None,
         "question_text": None,
         "all_leaves_done": False,
@@ -92,7 +89,6 @@ class TestLoadInterviewContext:
 
         assert result["all_leaves_done"] is False
         assert result["active_leaf_id"] == leaf_id
-        assert result["active_leaf_path"] == "Skills"
 
         # Verify coverage record was created
         coverage = await db.LeafCoverageManager.list_by_root_area(area_id)
@@ -123,7 +119,6 @@ class TestLoadInterviewContext:
             active_leaf_id=leaf_id,
             created_at=get_timestamp(),
             question_text="What are your skills?",
-            message_ids=["msg1", "msg2"],
         )
         await db.ActiveInterviewContextManager.create(user_id, ctx)
 
@@ -140,8 +135,6 @@ class TestLoadInterviewContext:
         result = await load_interview_context(state)
 
         assert result["active_leaf_id"] == leaf_id
-        assert result["active_leaf_path"] == "Skills"
-        assert result["accumulated_message_ids"] == ["msg1", "msg2"]
         assert result["question_text"] == "What are your skills?"
 
 
@@ -170,7 +163,6 @@ class TestQuickEvaluate:
             new_id(),
             messages=[HumanMessage(content="I have 5 years of Python experience")],
             active_leaf_id=leaf_id,
-            active_leaf_path="Skills > Python",
             question_text="What is your Python experience?",
         )
 
@@ -203,8 +195,8 @@ class TestUpdateCoverageStatus:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_saves_user_message(self, temp_db):
-        """Should save user message to database."""
+    async def test_marks_leaf_covered_when_complete(self, temp_db):
+        """Should mark leaf as covered when evaluation is complete."""
         user_id, area_id, leaf_id = new_id(), new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
 
@@ -212,36 +204,29 @@ class TestUpdateCoverageStatus:
         area = db.LifeArea(id=area_id, title="Career", parent_id=None, user_id=user_id)
         await db.LifeAreasManager.create(area_id, area)
 
-        # Create active context
         from src.shared.timestamp import get_timestamp
 
-        ctx = db.ActiveInterviewContext(
-            user_id=user_id,
-            root_area_id=area_id,
-            active_leaf_id=leaf_id,
-            created_at=get_timestamp(),
-            message_ids=[],
+        now = get_timestamp()
+        coverage = db.LeafCoverage(
+            leaf_id=leaf_id, root_area_id=area_id, status="active", updated_at=now
         )
-        await db.ActiveInterviewContextManager.create(user_id, ctx)
+        await db.LeafCoverageManager.create(leaf_id, coverage)
 
         state = _create_state(
             user,
             area_id,
-            messages=[HumanMessage(content="I know Python")],
             active_leaf_id=leaf_id,
-            accumulated_message_ids=[],
-            leaf_evaluation=LeafEvaluation(status="partial", reason="Need more detail"),
+            leaf_evaluation=LeafEvaluation(status="complete", reason="All answered"),
         )
 
         result = await update_coverage_status(state)
 
-        assert "accumulated_message_ids" in result
-        assert len(result["accumulated_message_ids"]) == 1
+        # Returns completed_leaf_id when leaf is marked complete (for async extraction)
+        assert result == {"completed_leaf_id": leaf_id}
 
-        # Verify message was saved
-        messages = await db.LifeAreaMessagesManager.list_by_area(area_id)
-        assert len(messages) == 1
-        assert "I know Python" in messages[0].message_text
+        # Verify coverage status was updated
+        updated_coverage = await db.LeafCoverageManager.get_by_id(leaf_id)
+        assert updated_coverage.status == "covered"
 
 
 async def _setup_two_leaves_with_coverage(user_id, area_id, leaf1_status="covered"):
@@ -268,7 +253,6 @@ async def _setup_two_leaves_with_coverage(user_id, area_id, leaf1_status="covere
         root_area_id=area_id,
         active_leaf_id=leaf1_id,
         created_at=now,
-        message_ids=[],
     )
     await db.ActiveInterviewContextManager.create(user_id, ctx)
     return leaf1_id, leaf2_id
@@ -314,14 +298,12 @@ class TestSelectNextLeaf:
             user,
             area_id,
             active_leaf_id=leaf1_id,
-            active_leaf_path="Skills",
             leaf_evaluation=LeafEvaluation(status="complete", reason="Done"),
         )
 
         result = await select_next_leaf(state)
 
         assert result["active_leaf_id"] == leaf2_id
-        assert result["active_leaf_path"] == "Goals"
         assert result["completed_leaf_path"] == "Skills"
 
 
@@ -360,7 +342,6 @@ class TestGenerateLeafResponse:
             root_area_id=area_id,
             active_leaf_id=leaf_id,
             created_at=get_timestamp(),
-            message_ids=[],
         )
         await db.ActiveInterviewContextManager.create(user_id, ctx)
 
@@ -368,7 +349,6 @@ class TestGenerateLeafResponse:
             user,
             area_id,
             active_leaf_id=leaf_id,
-            active_leaf_path="Career > Skills",
             leaf_evaluation=None,  # No evaluation yet = initial question
         )
 

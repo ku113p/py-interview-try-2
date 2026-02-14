@@ -66,13 +66,12 @@ class State(BaseModel):
     command_response: str | None = None
     area_already_extracted: bool = False
 
-    # Leaf interview state (new focused flow)
+    # Leaf interview state
     active_leaf_id: uuid.UUID | None = None
-    active_leaf_path: str | None = (
-        None  # Full path like "Work > Google > Responsibilities"
-    )
     completed_leaf_path: str | None = None  # Path of just-completed leaf for transition
-    accumulated_message_ids: list[str] | None = None  # Message IDs for current leaf
+    completed_leaf_id: uuid.UUID | None = (
+        None  # Leaf just marked complete (for extraction)
+    )
     leaf_evaluation: LeafEvaluation | None = None
     question_text: str | None = None  # The question we asked for current leaf
     all_leaves_done: bool = False  # True when all leaves covered/skipped

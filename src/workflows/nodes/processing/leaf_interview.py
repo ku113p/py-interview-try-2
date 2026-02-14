@@ -1,6 +1,5 @@
 """Leaf interview nodes - focused interview flow asking one leaf at a time."""
 
-import json
 import logging
 import uuid
 
@@ -9,9 +8,8 @@ from langchain_openai import ChatOpenAI
 
 from src.infrastructure.db import managers as db
 from src.processes.interview import State
-from src.shared.ids import new_id
 from src.shared.interview_models import LeafEvaluation
-from src.shared.messages import filter_tool_messages, load_message_texts
+from src.shared.messages import filter_tool_messages, format_role
 from src.shared.prompts import (
     PROMPT_ALL_LEAVES_DONE,
     PROMPT_LEAF_COMPLETE,
@@ -21,12 +19,10 @@ from src.shared.prompts import (
 )
 from src.shared.retry import invoke_with_retry
 from src.shared.timestamp import get_timestamp
-from src.shared.tree_utils import SubAreaInfo, build_sub_area_info
+from src.shared.tree_utils import SubAreaInfo, build_sub_area_info, get_leaf_path
 from src.shared.utils.content import normalize_content
 
 logger = logging.getLogger(__name__)
-
-_MIN_MESSAGES_FOR_CONTEXT = 2
 
 
 def _get_leaf_areas(sub_area_info: list[SubAreaInfo]) -> list[SubAreaInfo]:
@@ -102,13 +98,10 @@ def _build_leaf_state(leaf: SubAreaInfo | None, extra: dict | None = None) -> di
         return {
             "all_leaves_done": True,
             "active_leaf_id": None,
-            "active_leaf_path": None,
             **(extra or {}),
         }
     return {
         "active_leaf_id": leaf.area.id,
-        "active_leaf_path": leaf.path,
-        "accumulated_message_ids": [],
         "question_text": None,
         "all_leaves_done": False,
         **(extra or {}),
@@ -125,7 +118,6 @@ async def _create_leaf_context(
         root_area_id=area_id,
         active_leaf_id=leaf.area.id,
         created_at=now,
-        message_ids=[],
     )
     await db.ActiveInterviewContextManager.create(user_id, ctx)
     await db.LeafCoverageManager.update_status(leaf.area.id, "active", now)
@@ -139,8 +131,6 @@ def _find_existing_context_state(
         if info.area.id == context.active_leaf_id:
             return {
                 "active_leaf_id": context.active_leaf_id,
-                "active_leaf_path": info.path,
-                "accumulated_message_ids": context.message_ids or [],
                 "question_text": context.question_text,
                 "all_leaves_done": False,
             }
@@ -184,20 +174,35 @@ async def load_interview_context(state: State):
     return _build_leaf_state(next_leaf)
 
 
+def _format_history_messages(messages: list[dict]) -> list[str]:
+    """Format history message dicts as text strings."""
+    texts = []
+    for msg in messages:
+        role = format_role(msg.get("role", "unknown"))
+        content = msg.get("content", "")
+        texts.append(f"{role}: {content}")
+    return texts
+
+
 async def quick_evaluate(state: State, llm: ChatOpenAI):
     """Evaluate if user has fully answered the current leaf topic."""
     if state.all_leaves_done or not state.active_leaf_id:
         return {"leaf_evaluation": None}
 
-    accumulated_texts = await load_message_texts(state.accumulated_message_ids)
+    # Get all messages for this leaf from leaf_history
+    leaf_messages = await db.LeafHistoryManager.get_messages(state.active_leaf_id)
+    accumulated_texts = _format_history_messages(leaf_messages)
+
+    # Add the current user message (not yet saved to history)
     current_messages = filter_tool_messages(state.messages)
     if current_messages:
         accumulated_texts.append(
             f"User: {normalize_content(current_messages[-1].content)}"
         )
 
+    leaf_path = await get_leaf_path(state.active_leaf_id, state.area_id)
     prompt = PROMPT_QUICK_EVALUATE.format(
-        leaf_path=state.active_leaf_path or "Unknown",
+        leaf_path=leaf_path,
         question_text=state.question_text or "Initial question about this topic",
         accumulated_messages="\n\n".join(accumulated_texts) or "No messages yet",
     )
@@ -216,68 +221,30 @@ async def quick_evaluate(state: State, llm: ChatOpenAI):
     return {"leaf_evaluation": result}
 
 
-async def _save_user_message(state: State, current_messages: list) -> list[str]:
-    """Save user message and return updated accumulated IDs."""
-    current_text = normalize_content(current_messages[-1].content)
-    message_text = f"User: {current_text}"
-    if len(current_messages) >= _MIN_MESSAGES_FOR_CONTEXT and isinstance(
-        current_messages[-2], AIMessage
-    ):
-        message_text = (
-            f"AI: {normalize_content(current_messages[-2].content)}\n{message_text}"
-        )
-
-    msg_id = new_id()
-    msg = db.LifeAreaMessage(
-        id=msg_id,
-        message_text=message_text,
-        area_id=state.area_id,
-        created_ts=get_timestamp(),
-        leaf_ids=json.dumps([str(state.active_leaf_id)]),
-    )
-    await db.LifeAreaMessagesManager.create(msg_id, msg)
-
-    accumulated = list(state.accumulated_message_ids or []) + [str(msg_id)]
-    await db.ActiveInterviewContextManager.update_message_ids(
-        state.user.id, accumulated
-    )
-    return accumulated
-
-
-async def _mark_leaf_complete(
-    state: State, evaluation: LeafEvaluation, accumulated: list[str]
-) -> None:
-    """Mark leaf as covered/skipped and queue extraction."""
+async def _mark_leaf_complete(state: State, evaluation: LeafEvaluation) -> None:
+    """Mark leaf as covered/skipped."""
     now = get_timestamp()
     status = "covered" if evaluation.status == "complete" else "skipped"
     await db.LeafCoverageManager.update_status(state.active_leaf_id, status, now)
-    if evaluation.status == "complete":
-        task = db.LeafExtractionQueueItem(
-            id=new_id(),
-            leaf_id=state.active_leaf_id,
-            root_area_id=state.area_id,
-            message_ids=accumulated,
-            created_at=now,
-        )
-        await db.LeafExtractionQueueManager.create(task.id, task)
     logger.info(
         "Leaf marked as %s", status, extra={"leaf_id": str(state.active_leaf_id)}
     )
 
 
 async def update_coverage_status(state: State):
-    """Save the user's message and update coverage status."""
+    """Update coverage status based on evaluation.
+
+    Returns completed_leaf_id when a leaf is marked complete/skipped,
+    so the worker can queue extraction.
+    """
     if state.all_leaves_done or not state.active_leaf_id:
         return {}
-    current_messages = filter_tool_messages(state.messages)
-    if not current_messages:
-        return {}
 
-    accumulated = await _save_user_message(state, current_messages)
     evaluation = state.leaf_evaluation
     if evaluation and evaluation.status in ("complete", "skipped"):
-        await _mark_leaf_complete(state, evaluation, accumulated)
-    return {"accumulated_message_ids": accumulated}
+        await _mark_leaf_complete(state, evaluation)
+        return {"completed_leaf_id": state.active_leaf_id}
+    return {}
 
 
 async def select_next_leaf(state: State):
@@ -288,7 +255,10 @@ async def select_next_leaf(state: State):
     if evaluation and evaluation.status == "partial":
         return {"all_leaves_done": False, "completed_leaf_path": None}
 
-    completed_leaf_path = state.active_leaf_path
+    leaf_id = state.active_leaf_id
+    completed_leaf_path = (
+        await get_leaf_path(leaf_id, state.area_id) if leaf_id else None
+    )
     leaf_areas = await _get_leaf_areas_for_root(state.area_id)
     next_leaf = await _get_next_uncovered_leaf(state.area_id, leaf_areas)
 
@@ -314,7 +284,9 @@ async def _generate_response_content(
     """Generate response content based on evaluation status."""
     evaluation = state.leaf_evaluation
     if evaluation and evaluation.status == "partial":
-        accumulated_texts = await load_message_texts(state.accumulated_message_ids)
+        # Get messages from leaf_history for follow-up context
+        leaf_messages = await db.LeafHistoryManager.get_messages(state.active_leaf_id)
+        accumulated_texts = _format_history_messages(leaf_messages)
         prompt = PROMPT_LEAF_FOLLOWUP.format(
             leaf_path=current_leaf_path,
             accumulated_messages="\n\n".join(accumulated_texts)
@@ -343,7 +315,9 @@ async def generate_leaf_response(state: State, llm: ChatOpenAI):
         )
         return _build_response(AIMessage(content=content))
 
-    current_leaf_path = state.active_leaf_path or "Unknown topic"
+    current_leaf_path = "Unknown topic"
+    if state.active_leaf_id:
+        current_leaf_path = await get_leaf_path(state.active_leaf_id, state.area_id)
     content = await _generate_response_content(state, llm, current_leaf_path)
     ai_msg = AIMessage(content=content)
     question_text = normalize_content(content)
