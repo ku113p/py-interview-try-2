@@ -133,7 +133,7 @@ async def save_knowledge(state: KnowledgeExtractionState) -> dict:
     Note: Duplicate detection is not implemented yet - each extraction
     creates new records. Future versions may implement fuzzy matching.
     """
-    from src.infrastructure.db.connection import get_connection
+    from src.infrastructure.db.connection import transaction
 
     if not state.extracted_knowledge or not state.user_id:
         logger.info(
@@ -147,7 +147,7 @@ async def save_knowledge(state: KnowledgeExtractionState) -> dict:
         return {}
 
     saved_count = 0
-    async with get_connection() as conn:
+    async with transaction() as conn:
         for item in state.extracted_knowledge:
             knowledge_id = new_id()
             knowledge = db.UserKnowledge(
@@ -170,7 +170,6 @@ async def save_knowledge(state: KnowledgeExtractionState) -> dict:
                 link, conn, auto_commit=False
             )
             saved_count += 1
-        await conn.commit()
 
     logger.info(
         "Saved knowledge items",

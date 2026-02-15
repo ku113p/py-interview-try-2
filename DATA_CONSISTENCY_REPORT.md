@@ -8,7 +8,7 @@ The codebase has a fundamentally sound architecture with good transaction usage 
 
 ## Part 1: Concrete Issues Found
 
-### Issue 1 (HIGH) — `save_knowledge` uses `get_connection()` instead of `transaction()`
+### ~~Issue 1 (HIGH) — `save_knowledge` uses `get_connection()` instead of `transaction()`~~ FIXED
 
 **File**: `src/workflows/subgraphs/knowledge_extraction/knowledge_nodes.py:150`
 
@@ -183,7 +183,7 @@ None of these apply to the current project.
 | `_update_leaf_context` (question text) | `leaf_interview/nodes.py:422` | NO | NO | LOW — non-critical metadata |
 | `area_tools` (CRUD) | `area_loop/nodes.py` | YES | YES | SAFE |
 | `save_summary` (area summary) | `knowledge_extraction/nodes.py:275` | NO | NO | MEDIUM — orphan if next step fails |
-| `save_knowledge` (knowledge + links) | `knowledge_nodes.py:150` | NO | NO | **BUG** — partial writes possible |
+| `save_knowledge` (knowledge + links) | `knowledge_nodes.py:150` | YES | YES | ~~**BUG**~~ FIXED — uses `transaction()` |
 | `mark_area_extracted` (timestamp) | `knowledge_extraction/nodes.py:291` | NO | NO | LOW — single UPDATE |
 | `/delete` (full cascade) | `handlers.py` | YES | YES | SAFE |
 | `/clear` (history) | `handlers.py` | YES | YES | SAFE |
