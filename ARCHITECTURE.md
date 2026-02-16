@@ -121,7 +121,7 @@ Commands are handled in the graph via `handle_command` node, making them transpo
 When deleting a user, data is removed in this order:
 1. `user_knowledge_areas` links
 2. `user_knowledge` items
-3. Per-area: `area_summaries`, `leaf_coverage`, `leaf_history`
+3. Per-area: `leaf_coverage`, `leaf_history`
 4. `life_areas`
 5. `histories`
 6. `users`
@@ -308,7 +308,6 @@ User ID mapping uses deterministic UUID5 from Telegram user ID, ensuring the sam
 | `histories` | Conversation messages (JSON) |
 | `life_areas` | Topics with hierarchy (parent_id, extracted_at timestamp when knowledge was extracted) |
 | `leaf_history` | Join table linking leaves to their conversation messages |
-| `area_summaries` | Extracted summaries + embeddings |
 | `user_knowledge` | Skills/facts extracted |
 | `user_knowledge_areas` | Knowledge-area links |
 | `leaf_coverage` | Per-leaf interview coverage status (pending/active/covered/skipped) with summary + vector |

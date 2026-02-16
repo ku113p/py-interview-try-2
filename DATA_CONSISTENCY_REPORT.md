@@ -92,7 +92,7 @@ save_history               [WRITES: ALL changes in one transaction]
 
 **Old flow**: `save_summary → extract_knowledge → save_knowledge → mark_extracted` (three independent DB writes)
 
-**Fix**: Replaced with `prepare_summary → extract_knowledge → persist_extraction`. The `prepare_summary` node only computes the embedding vector (no DB write). The `persist_extraction` node writes vector + knowledge items + mark_extracted in a single `transaction()`. No `area_summaries` table writes — leaf vectors are stored directly in `leaf_coverage.vector`.
+**Fix**: Replaced with `prepare_summary → extract_knowledge → persist_extraction`. The `prepare_summary` node only computes the embedding vector (no DB write). The `persist_extraction` node writes vector + knowledge items + mark_extracted in a single `transaction()`. Leaf vectors are stored directly in `leaf_coverage.vector`.
 
 Additionally, `_load_leaf_area_data` now reads from `leaf_coverage.summary_text` (written by the main graph) instead of raw `leaf_history` messages, avoiding redundant LLM summarization. Embedding is deferred from the interview hot path to the extraction process.
 

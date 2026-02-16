@@ -304,7 +304,6 @@ async def _save_knowledge_items(
             knowledge_id, knowledge, conn, auto_commit=False
         )
         link = db.UserKnowledgeArea(
-            user_id=state.user_id,
             knowledge_id=knowledge_id,
             area_id=state.area_id,
         )

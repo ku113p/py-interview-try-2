@@ -59,7 +59,7 @@ Test cases use the following expected fields:
 
 - `life_areas` - Exact count of life_areas table rows
 - `sub_areas_min/max` - Range for life_areas with parent_id (sub-areas)
-- `summaries` - Boolean: expect area_summaries > 0
+- `summaries` - Boolean: expect leaf_coverage with summary_text > 0
 - `knowledge` - Boolean: expect user_knowledge_areas > 0
 
 ## Recent Changes
