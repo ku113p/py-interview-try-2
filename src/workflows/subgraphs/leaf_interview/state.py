@@ -31,7 +31,6 @@ class LeafInterviewState(BaseModel):
 
     # Deferred DB write data (collected for atomic persist in save_history)
     leaf_summary_text: str | None = None
-    leaf_summary_vector: list[float] | None = None
     leaf_completion_status: str | None = None  # "covered" or "skipped"
 
     # Output

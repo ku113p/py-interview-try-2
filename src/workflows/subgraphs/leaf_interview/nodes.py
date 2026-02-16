@@ -292,20 +292,6 @@ async def _extract_leaf_summary(
     return normalize_content(response.content)
 
 
-async def _prepare_leaf_summary(
-    state: LeafInterviewState, llm: ChatOpenAI
-) -> tuple[str, list[float]] | None:
-    """Extract summary text and embedding vector for a covered leaf."""
-    from src.infrastructure.embeddings import get_embedding_client
-
-    summary = await _extract_leaf_summary(state, llm)
-    if not summary:
-        return None
-    embed_client = get_embedding_client()
-    vector = await invoke_with_retry(lambda: embed_client.aembed_query(summary))
-    return summary, vector
-
-
 async def _prepare_leaf_completion(
     state: LeafInterviewState, evaluation: LeafEvaluation, llm: ChatOpenAI
 ) -> dict:
@@ -317,11 +303,9 @@ async def _prepare_leaf_completion(
     result: dict = {"leaf_completion_status": status}
 
     if status == "covered":
-        summary_data = await _prepare_leaf_summary(state, llm)
-        if summary_data is not None:
-            summary, vector = summary_data
+        summary = await _extract_leaf_summary(state, llm)
+        if summary is not None:
             result["leaf_summary_text"] = summary
-            result["leaf_summary_vector"] = vector
             logger.info(
                 "Prepared leaf summary",
                 extra={

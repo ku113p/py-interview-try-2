@@ -86,27 +86,15 @@ save_history               [WRITES: ALL changes in one transaction]
 
 ---
 
-### Issue 4 (MEDIUM) — Knowledge extraction pipeline: three sequential saves with no atomicity
+### ~~Issue 4 (MEDIUM) — Knowledge extraction pipeline: three sequential saves with no atomicity~~ FIXED
 
-**File**: `src/workflows/subgraphs/knowledge_extraction/graph.py:25-28`
+**File**: `src/workflows/subgraphs/knowledge_extraction/graph.py`
 
-```
-save_summary → extract_knowledge → save_knowledge → mark_extracted
-```
+**Old flow**: `save_summary → extract_knowledge → save_knowledge → mark_extracted` (three independent DB writes)
 
-Each node saves independently:
-1. `save_summary` — writes `area_summaries` (no transaction)
-2. `save_knowledge` — writes `user_knowledge` + `user_knowledge_areas` (no transaction, see Issue 1)
-3. `mark_area_extracted` — writes `life_areas.extracted_at`
+**Fix**: Replaced with `prepare_summary → extract_knowledge → persist_extraction`. The `prepare_summary` node only computes the embedding vector (no DB write). The `persist_extraction` node writes vector + knowledge items + mark_extracted in a single `transaction()`. No `area_summaries` table writes — leaf vectors are stored directly in `leaf_coverage.vector`.
 
-**Problem**: If `save_knowledge` fails after `save_summary` succeeds:
-- Summary exists in `area_summaries`
-- Knowledge is partially or not saved
-- Area is NOT marked as extracted
-- There's no retry mechanism — the extract task just logs the error and the worker moves on
-- The area can never be re-extracted without manually running `/reset-area`
-
-**Worse**: Even if the user runs `/reset-area`, it deletes `area_summaries` and `leaf_coverage` data but doesn't clean up `user_knowledge` rows (those are only cleaned in `/delete` full account deletion).
+Additionally, `_load_leaf_area_data` now reads from `leaf_coverage.summary_text` (written by the main graph) instead of raw `leaf_history` messages, avoiding redundant LLM summarization. Embedding is deferred from the interview hot path to the extraction process.
 
 ---
 
@@ -144,27 +132,15 @@ The current architecture is effectively an **orchestrated saga without compensat
 | **Outbox pattern** | PARTIALLY relevant | The `ExtractTask` channel queue is an in-memory outbox. A DB-backed task queue would fix Issue 5. |
 | **Rust typestate** | NOT NEEDED | Compile-time state machine enforcement is elegant, but Pydantic models + LangGraph routing already enforce valid transitions at runtime. |
 
-### Future improvement: Move leaf vectorizing to the knowledge extraction process
+### ~~Future improvement: Move leaf vectorizing to the knowledge extraction process~~ DONE
 
-The leaf interview subgraph currently does **two expensive operations** inline during `update_coverage_status`:
-1. LLM call to extract the leaf summary (`_extract_leaf_summary`)
-2. Embedding API call to vectorize the summary (`_prepare_leaf_summary`)
+Leaf embedding has been moved out of the interview hot path into the extraction process:
 
-Both run in the hot path — the user is waiting for a response while these execute. The summary text is needed immediately (it feeds into knowledge extraction later), but the **embedding vector** is only used for semantic search and could be computed asynchronously.
-
-The knowledge extraction subgraph already has a vectorizing step (`save_summary` in `knowledge_nodes.py`) that generates embeddings for area-level summaries. Leaf-level vectorizing could follow the same pattern:
-
-- **Keep** `_extract_leaf_summary` in the interview flow (the text summary is useful immediately)
-- **Remove** the `embed_client.aembed_query()` call from `_prepare_leaf_summary`
-- **Add** a leaf vectorizing step to the knowledge extraction process, which already runs asynchronously via the extract worker pool
-
-Benefits:
-- Faster user-facing response (removes one API round-trip from the hot path)
-- Consistent pattern — all vectorizing happens in the same async pipeline
-- Simpler `_prepare_leaf_completion` — returns only `leaf_summary_text` and `leaf_completion_status`, no vector
-- Removes `leaf_summary_vector` from the interview state models (less state to propagate)
-
-The `leaf_coverage.vector` column write would move from `save_history` to a new node in the extraction subgraph, right before or alongside the area-level `save_summary` embedding step.
+- `_prepare_leaf_summary` now returns only the summary text (no embedding call)
+- `leaf_summary_vector` removed from all state models (LeafInterviewState, State, SaveHistoryState)
+- `save_history` writes only `summary_text` to `leaf_coverage` (via `save_summary_text()`)
+- The extraction process's `prepare_summary` node generates the embedding vector
+- `persist_extraction` writes the vector to `leaf_coverage.vector` atomically alongside knowledge items
 
 ---
 
@@ -214,9 +190,7 @@ None of these apply to the current project.
 | ~~`_mark_leaf_complete`~~ | removed | — | — | Replaced by `_prepare_leaf_completion` (pure compute) |
 | ~~`_update_leaf_context`~~ | removed | — | — | Moved to `save_history` transaction |
 | `area_tools` (CRUD) | `area_loop/nodes.py` | YES | YES | SAFE |
-| `save_summary` (area summary) | `knowledge_extraction/nodes.py:275` | NO | NO | MEDIUM — orphan if next step fails |
-| `save_knowledge` (knowledge + links) | `knowledge_nodes.py:150` | YES | YES | ~~**BUG**~~ FIXED — uses `transaction()` |
-| `mark_area_extracted` (timestamp) | `knowledge_extraction/nodes.py:291` | NO | NO | LOW — single UPDATE |
+| `persist_extraction` (vector + knowledge + mark_extracted) | `knowledge_extraction/nodes.py` | YES | YES | SAFE — all extraction writes atomic |
 | `/delete` (full cascade) | `handlers.py` | YES | YES | SAFE |
 | `/clear` (history) | `handlers.py` | YES | YES | SAFE |
 | `/reset-area` | `handlers.py` | YES | YES | SAFE — but missing knowledge cleanup |

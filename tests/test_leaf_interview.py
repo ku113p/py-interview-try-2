@@ -1,7 +1,7 @@
 """Unit tests for leaf interview nodes and save_history persistence."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -239,7 +239,7 @@ class TestUpdateCoverageStatus:
 
     @pytest.mark.asyncio
     async def test_returns_summary_data_in_state(self, temp_db):
-        """Should return summary text and vector in state for deferred persistence."""
+        """Should return summary text in state for deferred persistence."""
         user_id, area_id, leaf_id = new_id(), new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
         await _setup_leaf_with_history(user_id, area_id, leaf_id)
@@ -250,16 +250,14 @@ class TestUpdateCoverageStatus:
             active_leaf_id=leaf_id,
             leaf_evaluation=LeafEvaluation(status="complete", reason="All answered"),
         )
-        mock_llm, expected_vector = _mock_llm_and_embeddings()
+        mock_llm = _mock_llm_for_summary()
 
-        with patch("src.infrastructure.embeddings.get_embedding_client") as mock_get:
-            mock_get.return_value = mock_llm._embed_client
-            result = await update_coverage_status(state, mock_llm)
+        result = await update_coverage_status(state, mock_llm)
 
         assert result["completed_leaf_id"] == leaf_id
         assert result["leaf_completion_status"] == "covered"
         assert result["leaf_summary_text"] == "User has 5 years of Python experience."
-        assert result["leaf_summary_vector"] == expected_vector
+        assert "leaf_summary_vector" not in result
 
         # DB should NOT be updated yet
         unchanged = await db.LeafCoverageManager.get_by_id(leaf_id)
@@ -267,17 +265,13 @@ class TestUpdateCoverageStatus:
         assert unchanged.summary_text is None
 
 
-def _mock_llm_and_embeddings():
-    """Create mock LLM and embedding client for summary extraction tests."""
+def _mock_llm_for_summary():
+    """Create mock LLM for summary extraction tests."""
     mock_llm = MagicMock()
     mock_response = MagicMock()
     mock_response.content = "User has 5 years of Python experience."
     mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-    expected_vector = [0.1, 0.2, 0.3]
-    mock_embed_client = AsyncMock()
-    mock_embed_client.aembed_query.return_value = expected_vector
-    mock_llm._embed_client = mock_embed_client
-    return mock_llm, expected_vector
+    return mock_llm
 
 
 async def _setup_leaf_with_history(user_id, area_id, leaf_id):
@@ -481,7 +475,6 @@ def _create_save_state(user: User, **kwargs) -> SaveHistoryState:
         "question_text": None,
         "is_fully_covered": False,
         "leaf_summary_text": None,
-        "leaf_summary_vector": None,
         "leaf_completion_status": None,
     }
     defaults.update(kwargs)
@@ -514,8 +507,8 @@ class TestSaveHistoryLeafPersistence:
         assert updated.status == "covered"
 
     @pytest.mark.asyncio
-    async def test_persists_leaf_summary(self, temp_db):
-        """Should save summary text and vector to DB."""
+    async def test_persists_leaf_summary_text(self, temp_db):
+        """Should save summary text to DB (vector deferred to extraction)."""
         user_id, area_id, leaf_id = new_id(), new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
         await _setup_leaf_with_history(user_id, area_id, leaf_id)
@@ -523,20 +516,18 @@ class TestSaveHistoryLeafPersistence:
         from src.shared.timestamp import get_timestamp
 
         ts = get_timestamp()
-        vector = [0.1, 0.2, 0.3]
         state = _create_save_state(
             user,
             messages_to_save={ts: [AIMessage(content="Next question")]},
             completed_leaf_id=leaf_id,
             leaf_completion_status="covered",
             leaf_summary_text="User has Python skills",
-            leaf_summary_vector=vector,
         )
         await save_history(state)
 
         updated = await db.LeafCoverageManager.get_by_id(leaf_id)
         assert updated.summary_text == "User has Python skills"
-        assert updated.vector == vector
+        assert updated.vector is None  # Vector deferred to extraction process
         assert updated.status == "covered"
 
     @pytest.mark.asyncio
@@ -625,8 +616,8 @@ class TestSaveHistoryLeafPersistence:
         assert unchanged.status == "active"
 
     @pytest.mark.asyncio
-    async def test_skips_summary_when_vector_missing(self, temp_db):
-        """Should skip save_summary when vector is None (text without vector)."""
+    async def test_saves_summary_text_without_vector(self, temp_db):
+        """Should save summary text even without vector (vector deferred to extraction)."""
         user_id, area_id, leaf_id = new_id(), new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
         await _setup_leaf_with_history(user_id, area_id, leaf_id)
@@ -640,14 +631,14 @@ class TestSaveHistoryLeafPersistence:
             completed_leaf_id=leaf_id,
             leaf_completion_status="covered",
             leaf_summary_text="Some summary",
-            leaf_summary_vector=None,  # Missing vector
         )
         await save_history(state)
 
-        # Status updated but summary NOT written
+        # Summary text saved, vector remains None (deferred to extraction)
         updated = await db.LeafCoverageManager.get_by_id(leaf_id)
         assert updated.status == "covered"
-        assert updated.summary_text is None
+        assert updated.summary_text == "Some summary"
+        assert updated.vector is None
 
     @pytest.mark.asyncio
     async def test_skips_completion_when_status_missing(self, temp_db):

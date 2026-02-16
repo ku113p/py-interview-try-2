@@ -26,7 +26,6 @@ class SaveHistoryState(BaseModel):
 
     # Deferred DB write data from subgraph nodes
     leaf_summary_text: str | None = None
-    leaf_summary_vector: list[float] | None = None
     leaf_completion_status: str | None = None  # "covered" or "skipped"
 
 
@@ -87,13 +86,9 @@ async def _save_leaf_completion(state: SaveHistoryState, conn, now: float) -> No
     """Persist deferred leaf coverage status and summary within a transaction."""
     if not state.completed_leaf_id or not state.leaf_completion_status:
         return
-    if state.leaf_summary_text is not None and state.leaf_summary_vector is not None:
-        await db.LeafCoverageManager.save_summary(
-            state.completed_leaf_id,
-            state.leaf_summary_text,
-            state.leaf_summary_vector,
-            now,
-            conn=conn,
+    if state.leaf_summary_text is not None:
+        await db.LeafCoverageManager.save_summary_text(
+            state.completed_leaf_id, state.leaf_summary_text, now, conn=conn
         )
     await db.LeafCoverageManager.update_status(
         state.completed_leaf_id, state.leaf_completion_status, now, conn=conn

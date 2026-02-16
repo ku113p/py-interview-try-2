@@ -86,13 +86,13 @@ route_after_context_load
 **Node details:**
 - `load_interview_context`: Load/create active leaf context for user
 - `quick_evaluate`: Evaluate user response (complete/partial/skipped)
-- `update_coverage_status`: Mark leaf as covered/skipped; extracts and saves summary with embedding when covered
+- `update_coverage_status`: Mark leaf as covered/skipped; extracts summary text when covered (embedding deferred to extraction process)
 - `select_next_leaf`: Stay on current (partial) or pick next uncovered leaf
 - `generate_leaf_response`: Generate focused question or transition message
 - `completed_area_response`: Handle already-extracted areas
 
 **Inline summary extraction:**
-When a leaf is marked as "covered", `update_coverage_status` extracts a 2-4 sentence summary of the user's responses using `PROMPT_LEAF_SUMMARY`. The summary and its embedding vector are saved to `leaf_coverage.summary_text` and `leaf_coverage.vector`. This enables the knowledge extraction worker to use pre-extracted summaries instead of re-processing raw messages.
+When a leaf is marked as "covered", `update_coverage_status` extracts a 2-4 sentence summary of the user's responses using `PROMPT_LEAF_SUMMARY`. The summary text is saved to `leaf_coverage.summary_text` by `save_history`. The embedding vector (`leaf_coverage.vector`) is computed later by the knowledge extraction process, keeping the interview hot path fast.
 
 **Benefits:**
 - O(1) token growth per turn (only current leaf + accumulated messages)
@@ -162,12 +162,11 @@ Tool-calling loop for hierarchical area management.
 
 ### knowledge_extraction
 Post-interview knowledge extraction (triggered when all leaves covered).
-- `load_area_data`: Uses pre-extracted leaf_coverage summaries
+- `load_area_data`: Reads pre-extracted summaries from `leaf_coverage.summary_text`
 - `extract_summaries`: Skipped when leaf summaries available (inline extraction already done)
-- `save_summary`: Persist area-level summary with embedding
-- `extract_knowledge`: Extract skills/facts
-- `save_knowledge`: Persist knowledge items
-- `mark_extracted`: Set `extracted_at` timestamp on area
+- `prepare_summary`: Generates embedding vector for combined summary (no DB write)
+- `extract_knowledge`: Extract skills/facts via LLM
+- `persist_extraction`: Atomic write of vector + knowledge items + mark_extracted in one transaction
 
 ## Process Architecture
 
