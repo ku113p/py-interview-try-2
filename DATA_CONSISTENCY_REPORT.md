@@ -52,9 +52,9 @@ Scenario 2 is the worse one — the `try/except` swallowing on line 311-314 sile
 
 ---
 
-### Issue 3 (MEDIUM) — Main workflow: mid-subgraph crash loses messages but keeps DB state changes
+### ~~Issue 3 (MEDIUM) — Main workflow: mid-subgraph crash loses messages but keeps DB state changes~~ FIXED
 
-**Graph flow**:
+**Original graph flow** (each node wrote to DB independently):
 ```
 leaf_interview subgraph:
   load_interview_context  [WRITES: active_interview_context, leaf_coverage]
@@ -66,15 +66,23 @@ leaf_interview subgraph:
 save_history               [WRITES: histories, leaf_history]
 ```
 
-**Problem**: Each node writes independently. If the process crashes between `update_coverage_status` and `save_history`:
-- Leaf is marked "covered" in `leaf_coverage`
-- `active_interview_context` points to the next leaf
-- But the user's answer and AI's response are **never saved to `histories`**
-- The `leaf_history` link is never created
+**Problem**: If the process crashed between `update_coverage_status` and `save_history`:
+- Leaf was marked "covered" in `leaf_coverage`
+- `active_interview_context` pointed to the next leaf
+- But the user's answer and AI's response were **never saved to `histories`**
 
-**Result**: The leaf summary was extracted from messages that include the current turn (via `accumulate_with_current`), but those messages themselves are lost. The system moves to the next leaf as if everything is fine, but there's a gap in conversation history.
+**Fix**: Collect-then-commit pattern. Subgraph nodes (`update_coverage_status`, `select_next_leaf`, `generate_leaf_response`) are now pure compute — they return data in state instead of writing to DB. `save_history` persists everything atomically in a single `transaction()`: messages, leaf_history links, leaf_coverage status/summary, interview context transition.
 
-This is the classic "distributed write" problem within a single-process pipeline.
+```
+leaf_interview subgraph (after fix):
+  load_interview_context  [WRITES: initial setup — idempotent]
+  → quick_evaluate        [pure compute]
+  → update_coverage_status [pure compute — returns summary + status in state]
+  → select_next_leaf      [pure compute — returns next leaf in state]
+  → generate_leaf_response [pure compute — returns question_text in state]
+                            ↓
+save_history               [WRITES: ALL changes in one transaction]
+```
 
 ---
 
@@ -136,11 +144,35 @@ The current architecture is effectively an **orchestrated saga without compensat
 | **Outbox pattern** | PARTIALLY relevant | The `ExtractTask` channel queue is an in-memory outbox. A DB-backed task queue would fix Issue 5. |
 | **Rust typestate** | NOT NEEDED | Compile-time state machine enforcement is elegant, but Pydantic models + LangGraph routing already enforce valid transitions at runtime. |
 
+### Future improvement: Move leaf vectorizing to the knowledge extraction process
+
+The leaf interview subgraph currently does **two expensive operations** inline during `update_coverage_status`:
+1. LLM call to extract the leaf summary (`_extract_leaf_summary`)
+2. Embedding API call to vectorize the summary (`_prepare_leaf_summary`)
+
+Both run in the hot path — the user is waiting for a response while these execute. The summary text is needed immediately (it feeds into knowledge extraction later), but the **embedding vector** is only used for semantic search and could be computed asynchronously.
+
+The knowledge extraction subgraph already has a vectorizing step (`save_summary` in `knowledge_nodes.py`) that generates embeddings for area-level summaries. Leaf-level vectorizing could follow the same pattern:
+
+- **Keep** `_extract_leaf_summary` in the interview flow (the text summary is useful immediately)
+- **Remove** the `embed_client.aembed_query()` call from `_prepare_leaf_summary`
+- **Add** a leaf vectorizing step to the knowledge extraction process, which already runs asynchronously via the extract worker pool
+
+Benefits:
+- Faster user-facing response (removes one API round-trip from the hot path)
+- Consistent pattern — all vectorizing happens in the same async pipeline
+- Simpler `_prepare_leaf_completion` — returns only `leaf_summary_text` and `leaf_completion_status`, no vector
+- Removes `leaf_summary_vector` from the interview state models (less state to propagate)
+
+The `leaf_coverage.vector` column write would move from `save_history` to a new node in the extraction subgraph, right before or alongside the area-level `save_summary` embedding step.
+
+---
+
 ### Recommended approach: Two-tier fix
 
 **Tier 1 — Fix the bugs (immediate, low effort)**:
-1. Change `save_knowledge` to use `transaction()` instead of `get_connection()`
-2. Wrap `_mark_leaf_complete` in a transaction (summary save + status update together), or at minimum don't swallow the summary error — let it fail the node so the leaf isn't falsely marked as covered
+1. ~~Change `save_knowledge` to use `transaction()`~~ DONE
+2. ~~Wrap `_mark_leaf_complete` in a transaction~~ DONE — went further: all subgraph DB writes moved to `save_history` (collect-then-commit)
 3. Ensure `/reset-area` also cleans `user_knowledge` + `user_knowledge_areas`
 
 **Tier 2 — Add LangGraph checkpointing (medium effort, high value)**:
@@ -175,12 +207,12 @@ None of these apply to the current project.
 
 | Operation | Location | Transaction? | Rollback? | Risk |
 |-----------|----------|-------------|-----------|------|
-| `save_history` (messages + leaf links) | `save_history.py:64` | YES | YES | SAFE |
-| `_create_leaf_context` (context + coverage) | `leaf_interview/nodes.py:132` | YES | YES | SAFE |
-| `_transition_to_next_leaf` (context + coverage) | `leaf_interview/nodes.py:346` | YES | YES | SAFE |
-| `_ensure_coverage_records` (coverage) | `leaf_interview/nodes.py:56-67` | NO | NO | LOW — INSERT OR IGNORE, idempotent |
-| `_mark_leaf_complete` (summary + status) | `leaf_interview/nodes.py:303` | YES | YES | ~~**BUG**~~ FIXED — atomic transaction |
-| `_update_leaf_context` (question text) | `leaf_interview/nodes.py:422` | NO | NO | LOW — non-critical metadata |
+| `save_history` (messages + leaf links + coverage + context) | `save_history.py` | YES | YES | SAFE — all leaf interview writes atomic |
+| `_create_leaf_context` (context + coverage) | `leaf_interview/nodes.py` | YES | YES | SAFE — first-turn setup only |
+| `_ensure_coverage_records` (coverage) | `leaf_interview/nodes.py` | NO | NO | LOW — INSERT OR IGNORE, idempotent |
+| ~~`_transition_to_next_leaf`~~ | removed | — | — | Moved to `save_history` transaction |
+| ~~`_mark_leaf_complete`~~ | removed | — | — | Replaced by `_prepare_leaf_completion` (pure compute) |
+| ~~`_update_leaf_context`~~ | removed | — | — | Moved to `save_history` transaction |
 | `area_tools` (CRUD) | `area_loop/nodes.py` | YES | YES | SAFE |
 | `save_summary` (area summary) | `knowledge_extraction/nodes.py:275` | NO | NO | MEDIUM — orphan if next step fails |
 | `save_knowledge` (knowledge + links) | `knowledge_nodes.py:150` | YES | YES | ~~**BUG**~~ FIXED — uses `transaction()` |
