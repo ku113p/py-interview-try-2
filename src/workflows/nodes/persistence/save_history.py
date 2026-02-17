@@ -128,11 +128,14 @@ async def _save_turn_summary(
 
 
 async def _save_leaf_completion(state: SaveHistoryState, conn, now: float) -> None:
-    """Set covered_at when leaf is complete or skipped."""
+    """Set covered_at and mark_extracted when leaf is complete or skipped."""
     if not state.completed_leaf_id or not state.set_covered_at:
         return
 
     await db.LifeAreasManager.set_covered_at(state.completed_leaf_id, now, conn=conn)
+    await db.LifeAreasManager.mark_extracted(
+        state.completed_leaf_id, conn=conn, timestamp=now
+    )
     logger.info("Set covered_at", extra={"leaf_id": str(state.completed_leaf_id)})
 
 
