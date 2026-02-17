@@ -94,13 +94,13 @@ route_after_context_load
 - `completed_area_response`: Handle already-extracted areas
 
 **Per-turn summary flow:**
-Each user answer is summarized via `create_turn_summary` (`PROMPT_TURN_SUMMARY`). The summary text is written to the `summaries` table by `save_history` (atomic with message writes). After persisting, `save_history` returns `pending_summary_id` which the interview worker enqueues as a `SummaryVectorizeTask` to the extract pool — keeping the interview hot path fast.
+Each user answer is summarized via `create_turn_summary` (`PROMPT_TURN_SUMMARY`). The summary text is written to the `summaries` table by `save_history` (atomic with message writes). After persisting, `save_history` returns `pending_summary_id` which the interview worker enqueues as an `ExtractTask(summary_id=...)` to the extract pool — triggering vectorization and knowledge extraction immediately after each answered turn.
 
 **Benefits:**
 - O(1) token growth per turn (only current leaf + accumulated summaries)
 - Clearer, more focused questions
 - Per-turn summaries available immediately for evaluation and extraction
-- Embedding vectorization decoupled to background worker
+- Knowledge extracted incrementally (per-turn, not waiting for leaf completion)
 
 ## Command Handling
 
@@ -163,12 +163,13 @@ Tool-calling loop for hierarchical area management.
 - **Auto-set current area**: When creating a root area (no parent), it's automatically set as the user's `current_area_id`. This ensures the interview flow has a valid area immediately after creation.
 
 ### knowledge_extraction
-Post-interview knowledge extraction (triggered when all leaves covered).
-- `load_area_data`: Reads per-turn summaries from `summaries` table (falls back to raw leaf messages)
-- `extract_summaries`: Skipped when per-turn summaries available (already written per turn)
-- `prepare_summary`: Generates embedding vector for combined summary (no DB write)
-- `extract_knowledge`: Extract skills/facts via LLM
-- `persist_extraction`: Atomic write of vector + knowledge items + mark_extracted in one transaction
+Per-turn knowledge extraction (triggered after each answered turn summary is saved).
+- `load_summary`: Load `summary_text` and `area_id` from `summaries` table by `summary_id`
+- `vectorize_summary`: Generate embedding vector for the summary text
+- `extract_knowledge`: Extract skills/facts via LLM from `summary_content`
+- `persist_extraction`: Atomic write of vector to `summaries.vector` + knowledge items to `user_knowledge`
+
+`mark_extracted` is called in `save_history._save_leaf_completion` when the leaf is marked covered.
 
 ## Process Architecture
 
@@ -191,7 +192,7 @@ The application is organized into 3 independent async processes that communicate
 | auth | `src/processes/auth/` | Exchange external user IDs for internal user_ids | `run_auth_pool`, `AuthRequest`, `resolve_user_id` |
 | transport | `src/processes/transport/` | CLI and Telegram transports | `run_cli`, `run_telegram`, `parse_user_id` |
 | interview | `src/processes/interview/` | Main graph worker for message processing | `run_graph_pool`, `get_graph`, `State`, `Target` |
-| extract | `src/processes/extract/` | Knowledge extraction from completed areas | `run_extract_pool`, `ExtractTask`, `SummaryVectorizeTask` |
+| extract | `src/processes/extract/` | Per-summary knowledge extraction | `run_extract_pool`, `ExtractTask` |
 
 ### Runtime Infrastructure
 
@@ -208,15 +209,14 @@ Shared runtime utilities in `src/runtime/`:
 |------|------|---------|
 | Auth | 1 | Exchange external user IDs for internal user_ids |
 | Graph | 2 | Processes messages through main graph |
-| Extract | 2 | Knowledge extraction from covered areas |
+| Extract | 2 | Per-summary knowledge extraction |
 
 ### Channel Message Types
 
 ```python
 ChannelRequest        # transport → graph (correlation_id, user_id, client_message)
 ChannelResponse       # graph → transport (correlation_id, response_text)
-ExtractTask           # graph → extract (area_id) — triggered when leaf completes
-SummaryVectorizeTask  # graph → extract (summary_id) — triggered per turn summary saved
+ExtractTask           # graph → extract (summary_id) — triggered per turn summary saved
 AuthRequest           # transport → auth (provider, external_id, display_name, response_future)
 ```
 
@@ -228,10 +228,9 @@ AuthRequest           # transport → auth (provider, external_id, display_name,
    - Transport matches responses to pending requests by ID
 
 2. **Background Extraction**:
-   - Graph worker queues `ExtractTask` when a leaf is fully covered
-   - Graph worker queues `SummaryVectorizeTask` each time a turn summary is saved
-   - Both task types share the `channels.extract` queue and worker pool
-   - Extract workers process independently (fire-and-forget)
+   - Graph worker queues `ExtractTask(summary_id=...)` each time a turn summary is saved
+   - Extract workers vectorize the summary and extract knowledge items (fire-and-forget)
+   - `mark_extracted` on the leaf area is done in `save_history` at leaf completion
 
 3. **Graceful Shutdown**:
    - Shared `shutdown` event signals all pools
@@ -256,7 +255,7 @@ main.py
     │       └── imports src.processes.extract.interfaces
     │
     └── src.processes.extract
-            └── interfaces.py (ExtractTask, SummaryVectorizeTask)
+            └── interfaces.py (ExtractTask)
 ```
 
 Key: Each process only imports **interfaces** from other processes, never implementation.

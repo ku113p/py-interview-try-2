@@ -1,4 +1,4 @@
-"""Extract worker pool for knowledge extraction from completed areas."""
+"""Extract worker pool for knowledge extraction from summaries."""
 
 import asyncio
 import logging
@@ -10,8 +10,7 @@ from src.config.settings import (
     WORKER_POOL_EXTRACT,
 )
 from src.infrastructure.ai import LLMClientBuilder
-from src.infrastructure.db import managers as db
-from src.processes.extract.interfaces import ExtractTask, SummaryVectorizeTask
+from src.processes.extract.interfaces import ExtractTask
 from src.runtime import Channels, run_worker_pool
 from src.workflows.subgraphs.knowledge_extraction.graph import (
     build_knowledge_extraction_graph,
@@ -23,42 +22,22 @@ logger = logging.getLogger(__name__)
 
 async def _invoke_extraction_graph(task: ExtractTask, graph, worker_id: int) -> None:
     """Invoke the knowledge extraction graph for a task."""
-    extra = {"area_id": str(task.area_id), "worker_id": worker_id}
+    extra = {"summary_id": str(task.summary_id), "worker_id": worker_id}
     logger.info("Processing extract task", extra=extra)
-    state = KnowledgeExtractionState(area_id=task.area_id)
+    state = KnowledgeExtractionState(summary_id=task.summary_id)
     await graph.ainvoke(state)
     logger.info("Completed extract task", extra=extra)
 
 
-async def _vectorize_summary(task: SummaryVectorizeTask) -> None:
-    """Compute and store the embedding vector for a summary."""
-    from src.infrastructure.embeddings import get_embedding_client
-
-    summary = await db.SummariesManager.get_by_id(task.summary_id)
-    if not summary:
-        logger.warning(
-            "Summary not found for vectorization",
-            extra={"summary_id": str(task.summary_id)},
-        )
-        return
-    embed_client = get_embedding_client()
-    vector = await embed_client.aembed_query(summary.summary_text)
-    await db.SummariesManager.update_vector(task.summary_id, vector)
-    logger.info("Vectorized summary", extra={"summary_id": str(task.summary_id)})
-
-
 async def _run_extraction_with_recovery(
-    task: ExtractTask | SummaryVectorizeTask,
+    task: ExtractTask,
     graph,
     channels: Channels,
     worker_id: int,
 ) -> None:
-    """Run extraction or vectorization with error recovery - log and continue on failure."""
+    """Run extraction with error recovery - log and continue on failure."""
     try:
-        if isinstance(task, SummaryVectorizeTask):
-            await _vectorize_summary(task)
-        else:
-            await _invoke_extraction_graph(task, graph, worker_id)
+        await _invoke_extraction_graph(task, graph, worker_id)
     except asyncio.CancelledError:
         logger.info("Extract worker %d cancelled", worker_id)
         raise
