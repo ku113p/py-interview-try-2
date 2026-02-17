@@ -15,11 +15,11 @@ def route_after_context_load(
 ]:
     """Route based on interview state after context load.
 
-    - All leaves done or area extracted → completed_area_response
+    - All leaves covered (active_leaf_id is None) → completed_area_response
     - First turn (no user message yet) → generate_leaf_response (ask first question)
     - Subsequent turns → create_turn_summary → quick_evaluate
     """
-    if state.all_leaves_done or state.area_already_extracted:
+    if state.active_leaf_id is None:
         return "completed_area_response"
 
     current_messages = filter_tool_messages(state.messages)

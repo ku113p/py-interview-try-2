@@ -93,14 +93,12 @@ def _build_leaf_state(leaf: db.LifeArea | None, extra: dict | None = None) -> di
     """Build state dict for a leaf (or None if all done)."""
     if leaf is None:
         return {
-            "all_leaves_done": True,
             "active_leaf_id": None,
             **(extra or {}),
         }
     return {
         "active_leaf_id": leaf.id,
         "question_text": None,
-        "all_leaves_done": False,
         **(extra or {}),
     }
 
@@ -112,15 +110,6 @@ async def load_interview_context(state: LeafInterviewState):
     """Load interview context using depth-first leaf traversal (stateless)."""
     area_id = state.area_id
     try:
-        area = await db.LifeAreasManager.get_by_id(area_id)
-        if area is not None and area.extracted_at is not None:
-            logger.info("Area already extracted", extra={"area_id": str(area_id)})
-            return {
-                "area_already_extracted": True,
-                "all_leaves_done": True,
-                "active_leaf_id": None,
-            }
-
         next_leaf = await _get_next_uncovered_leaf(area_id)
         if next_leaf is None:
             logger.info("All leaves covered", extra={"area_id": str(area_id)})
@@ -167,7 +156,7 @@ async def create_turn_summary(state: LeafInterviewState, llm: ChatOpenAI):
     Returns turn_summary_text in state — saved to DB in save_history.
     Returns empty dict if message is not relevant to the interview topic.
     """
-    if not state.active_leaf_id or state.all_leaves_done:
+    if not state.active_leaf_id:
         return {}
 
     current_messages = filter_tool_messages(state.messages)
@@ -228,7 +217,7 @@ async def _evaluate_with_summaries(
 
 async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
     """Evaluate if user has fully answered the current leaf topic using summaries."""
-    if state.all_leaves_done or not state.active_leaf_id:
+    if not state.active_leaf_id:
         return {"leaf_evaluation": None, "is_successful": True}
 
     try:
@@ -253,7 +242,7 @@ async def quick_evaluate(state: LeafInterviewState, llm: ChatOpenAI):
 
 async def update_coverage_status(state: LeafInterviewState, llm: ChatOpenAI):
     """Signal covered_at when leaf is complete or skipped (deferred write)."""
-    if state.all_leaves_done or not state.active_leaf_id:
+    if not state.active_leaf_id:
         return {"is_successful": True}
 
     evaluation = state.leaf_evaluation
@@ -297,10 +286,10 @@ async def select_next_leaf(state: LeafInterviewState):
 
     Returns next leaf in state without DB writes.
     """
-    if state.all_leaves_done:
+    if not state.active_leaf_id:
         return {"is_successful": True}
     if state.leaf_evaluation and state.leaf_evaluation.status == "partial":
-        return {"all_leaves_done": False, "completed_leaf_path": None}
+        return {"completed_leaf_path": None}
 
     try:
         return await _find_next_leaf(state)
@@ -317,7 +306,7 @@ async def _generate_response_content(
 ) -> str:
     """Generate response content based on evaluation status."""
     current_messages = filter_tool_messages(state.messages)
-    if state.all_leaves_done:
+    if state.active_leaf_id is None:
         return await _prompt_llm_with_history(
             llm, PROMPT_ALL_LEAVES_DONE, current_messages[-8:]
         )
@@ -353,7 +342,9 @@ async def generate_leaf_response(state: LeafInterviewState, llm: ChatOpenAI):
         leaf_path = await get_leaf_path(state.active_leaf_id, state.area_id)
 
     content = await _generate_response_content(state, llm, leaf_path)
-    question_text = normalize_content(content) if not state.all_leaves_done else None
+    question_text = (
+        normalize_content(content) if state.active_leaf_id is not None else None
+    )
 
     eval_status = state.leaf_evaluation.status if state.leaf_evaluation else "initial"
     logger.info(
