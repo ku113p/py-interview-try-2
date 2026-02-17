@@ -121,16 +121,14 @@ async def _delete_knowledge(user_id: uuid.UUID, conn: aiosqlite.Connection) -> N
 
 
 async def _delete_area_data(area_id: uuid.UUID, conn: aiosqlite.Connection) -> None:
-    """Delete all data for a single area (leaf history, leaf coverage)."""
-    # Delete leaf history and coverage for all leaves in this area
+    """Delete all data for a single area (leaf history, summaries, coverage)."""
     descendants = await db.LifeAreasManager.get_descendants(area_id, conn)
     leaf_ids = [d.id for d in descendants]
     leaf_ids.append(area_id)  # Include root area itself if it's a leaf
     for leaf_id in leaf_ids:
         await db.LeafHistoryManager.delete_by_leaf(leaf_id, conn)
-
-    # Delete leaf coverage records for this root area
-    await db.LeafCoverageManager.delete_by_root_area(area_id, conn)
+        await db.SummariesManager.delete_by_area(leaf_id, conn)
+        await db.LifeAreasManager.set_covered_at(leaf_id, None, conn)
 
 
 async def _delete_user_data(user_id: uuid.UUID) -> None:
@@ -199,8 +197,6 @@ def _validate_reset_area(
         return f"Area not found: {area_id_str}"
     if area.user_id != user_id:
         return "You don't have permission to reset this area."
-    if area.extracted_at is None:
-        return "This area has not been extracted yet."
     return None
 
 
@@ -241,7 +237,6 @@ async def handle_reset_area_confirm(user_id: uuid.UUID, token: str) -> str:
 
     async with transaction() as conn:
         await _delete_area_data(area_id, conn)
-        await db.LifeAreasManager.reset_extraction(area_id, conn)
 
     area = await db.LifeAreasManager.get_by_id(area_id)
     title = area.title if area else str(area_id)

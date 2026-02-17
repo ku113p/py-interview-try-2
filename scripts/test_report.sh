@@ -88,8 +88,8 @@ for RUN in $(seq 1 $REPEAT); do
         SELECT
             (SELECT COUNT(*) FROM life_areas WHERE user_id = '$USER_ID'),
             (SELECT COUNT(*) FROM life_areas WHERE parent_id IS NOT NULL AND user_id = '$USER_ID'),
-            (SELECT COUNT(*) FROM leaf_coverage WHERE summary_text IS NOT NULL AND leaf_id IN (SELECT id FROM life_areas WHERE user_id = '$USER_ID')),
-            (SELECT COUNT(*) FROM user_knowledge_areas WHERE user_id = '$USER_ID')
+            (SELECT COUNT(*) FROM summaries JOIN life_areas ON summaries.area_id = life_areas.id WHERE life_areas.user_id = '$USER_ID'),
+            (SELECT COUNT(DISTINCT uka.knowledge_id) FROM user_knowledge_areas uka JOIN life_areas la ON uka.area_id = la.id WHERE la.user_id = '$USER_ID')
     " | tr '|' ' ')
 
     # Determine status
@@ -134,12 +134,12 @@ for RUN in $(seq 1 $REPEAT); do
     sqlite3 -header -column interview.db "SELECT id, title, parent_id FROM life_areas WHERE parent_id IS NOT NULL AND user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     echo ""
-    echo "Summaries (leaf_coverage with summary_text):"
-    sqlite3 -header -column interview.db "SELECT lc.leaf_id, substr(lc.summary_text, 1, 60) as summary_preview, lc.status FROM leaf_coverage lc JOIN life_areas a ON lc.leaf_id = a.id WHERE a.user_id = '$USER_ID' AND lc.summary_text IS NOT NULL" 2>/dev/null || echo "  (none)"
+    echo "Summaries:"
+    sqlite3 -header -column interview.db "SELECT s.id, la.title, substr(s.summary_text, 1, 60) as summary_preview FROM summaries s JOIN life_areas la ON s.area_id = la.id WHERE la.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     echo ""
     echo "Knowledge:"
-    sqlite3 -header -column interview.db "SELECT uk.id, uk.description, uk.kind FROM user_knowledge uk JOIN user_knowledge_areas uka ON uk.id = uka.knowledge_id WHERE uka.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
+    sqlite3 -header -column interview.db "SELECT uk.id, uk.description, uk.kind FROM user_knowledge uk JOIN user_knowledge_areas uka ON uk.id = uka.knowledge_id JOIN life_areas la ON uka.area_id = la.id WHERE la.user_id = '$USER_ID'" 2>/dev/null || echo "  (none)"
 
     # Keep log for inspection
     echo ""

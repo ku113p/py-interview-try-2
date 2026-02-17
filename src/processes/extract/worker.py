@@ -1,4 +1,4 @@
-"""Extract worker pool for knowledge extraction from completed areas."""
+"""Extract worker pool for knowledge extraction from summaries."""
 
 import asyncio
 import logging
@@ -22,15 +22,18 @@ logger = logging.getLogger(__name__)
 
 async def _invoke_extraction_graph(task: ExtractTask, graph, worker_id: int) -> None:
     """Invoke the knowledge extraction graph for a task."""
-    extra = {"area_id": str(task.area_id), "worker_id": worker_id}
+    extra = {"summary_id": str(task.summary_id), "worker_id": worker_id}
     logger.info("Processing extract task", extra=extra)
-    state = KnowledgeExtractionState(area_id=task.area_id)
+    state = KnowledgeExtractionState(summary_id=task.summary_id)
     await graph.ainvoke(state)
     logger.info("Completed extract task", extra=extra)
 
 
 async def _run_extraction_with_recovery(
-    task: ExtractTask, graph, channels: Channels, worker_id: int
+    task: ExtractTask,
+    graph,
+    channels: Channels,
+    worker_id: int,
 ) -> None:
     """Run extraction with error recovery - log and continue on failure."""
     try:

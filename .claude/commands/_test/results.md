@@ -13,17 +13,17 @@
 
 | # | Case Name | Status | Areas | Sub-Areas | Summaries | Knowledge | Last Run |
 |---|-----------|--------|-------|-----------|-----------|-----------|----------|
-| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 2/true | 5/true | 2026-02-17 01:07 |
-| 5 | Quick Interaction | PASS | 0/1 | 0/0-0 | 0/false | 0/false | 2026-02-17 01:07 |
-| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 2/true | 5/true | 2026-02-17 01:07 |
-| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-17 01:07 |
-| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 1/true | 4/true | 2026-02-17 01:07 |
-| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-17 01:07 |
-| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-17 01:07 |
-| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-17 01:07 |
-| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 2/true | 8/true | 2026-02-17 01:07 |
-| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 1/true | 2/true | 2026-02-17 01:07 |
-| 27 | Multi-Turn Leaf Interview | PASS | 2/2 | 1/1-1 | 1/true | 3/true | 2026-02-17 01:07 |
+| 1 | CRUD Operations | PASS | 3/3 | 2/2-2 | 3/true | 6/true | 2026-02-17 18:46 |
+| 5 | Quick Interaction | PASS | 1/1 | 0/0-0 | 0/false | 0/false | 2026-02-17 18:46 |
+| 13 | Knowledge - Skill Extraction | PASS | 3/3 | 2/2-2 | 2/true | 8/true | 2026-02-17 18:46 |
+| 18 | Multi-Area - Creation | PASS | 3/3 | 0/0-0 | 0/false | 0/false | 2026-02-17 18:46 |
+| 21 | Tree Sub-Areas Full Flow | PASS | 4/4 | 3/3-3 | 2/true | 8/true | 2026-02-17 18:46 |
+| 22 | Subtree - Bulk Create | PASS | 7/7 | 6/6-6 | 0/false | 0/false | 2026-02-17 18:46 |
+| 23 | Subtree - Deep Nesting | PASS | 5/5 | 4/4-4 | 0/false | 0/false | 2026-02-17 18:46 |
+| 24 | Small Talk Flow | PASS | 3/3 | 2/2-2 | 0/false | 0/false | 2026-02-17 18:46 |
+| 25 | Completed Area Message | PASS | 3/3 | 2/2-2 | 2/true | 7/true | 2026-02-17 18:46 |
+| 26 | Reset Area Command | PASS | 3/3 | 2/2-2 | 2/true | 3/true | 2026-02-17 18:46 |
+| 27 | Multi-Turn Leaf Interview | PASS | 2/2 | 1/1-1 | 3/true | 5/true | 2026-02-17 18:46 |
 
 ## Test Case Descriptions
 
@@ -59,10 +59,22 @@ Test cases use the following expected fields:
 
 - `life_areas` - Exact count of life_areas table rows
 - `sub_areas_min/max` - Range for life_areas with parent_id (sub-areas)
-- `summaries` - Boolean: expect leaf_coverage with summary_text > 0
-- `knowledge` - Boolean: expect user_knowledge_areas > 0
+- `summaries` - Boolean: expect summaries table rows > 0 for this user
+- `knowledge` - Boolean: expect user_knowledge_areas rows > 0 for this user
 
 ## Recent Changes
+
+### 2026-02-17: Per-Summary Extraction Refactor
+
+**Replaced `leaf_coverage` with `summaries` table:**
+- `summaries(id, area_id, summary_text, question_id, answer_id, vector, created_at)` — one row per interview turn
+- `user_knowledge_areas.user_id` column removed; user filtered via `JOIN life_areas`
+- Fixed `test_report.sh` count + display queries to use new schema
+- Updated `db-query.md` example queries to match
+- Summary/knowledge counts now accurate: cases 1, 21, 25, 26, 27 show higher counts than before
+
+**Test Results:**
+- All 11 test cases passing (100%)
 
 ### 2026-02-17: Schema Cleanup - Removed Legacy Tables
 
@@ -147,7 +159,6 @@ Test cases use the following expected fields:
 ### 2026-02-11: Completed Area Prevention Feature
 
 - Added test cases 25 and 26 for completed area handling
-- New `extracted_at` column tracks when knowledge extraction completed
 - Messaging a completed area shows notification with `/reset-area` command
 - Test 25 now passing - completed area response working correctly
 

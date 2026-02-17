@@ -53,22 +53,6 @@ class KnowledgeExtractionResult(BaseModel):
     )
 
 
-def _resolve_summary_content(state: KnowledgeExtractionState) -> str:
-    """Resolve summary content from state, computing from extracted_summary if needed."""
-    from .nodes import _build_summary_content
-
-    if state.summary_content:
-        return state.summary_content
-    if state.extracted_summary:
-        content = _build_summary_content(state.extracted_summary)
-        logger.info(
-            "Computed summary_content from extracted_summary",
-            extra={"area_id": str(state.area_id), "content_length": len(content)},
-        )
-        return content
-    return ""
-
-
 async def extract_knowledge(state: KnowledgeExtractionState, llm: ChatOpenAI) -> dict:
     """Extract skills and facts from the summary content using LLM.
 
@@ -79,20 +63,19 @@ async def extract_knowledge(state: KnowledgeExtractionState, llm: ChatOpenAI) ->
     logger.info(
         "Starting knowledge extraction",
         extra={
-            "area_id": str(state.area_id),
+            "summary_id": str(state.summary_id),
             "has_content": bool(state.summary_content),
         },
     )
 
-    summary_content = _resolve_summary_content(state)
-    if not summary_content:
+    if not state.summary_content:
         logger.info(
             "Skipping knowledge extraction - no summary content",
-            extra={"area_id": str(state.area_id)},
+            extra={"summary_id": str(state.summary_id)},
         )
         return {"extracted_knowledge": []}
 
-    user_prompt = {"area": state.area_title, "summary": summary_content}
+    user_prompt = {"summary": state.summary_content}
     structured_llm = llm.with_structured_output(KnowledgeExtractionResult)
 
     try:
@@ -108,12 +91,12 @@ async def extract_knowledge(state: KnowledgeExtractionState, llm: ChatOpenAI) ->
         extracted = [item.model_dump() for item in result.items]
         logger.info(
             "Extracted knowledge items",
-            extra={"area_id": str(state.area_id), "items_count": len(extracted)},
+            extra={"summary_id": str(state.summary_id), "items_count": len(extracted)},
         )
         return {"extracted_knowledge": extracted}
 
     except Exception:
         logger.exception(
-            "Failed to extract knowledge", extra={"area_id": str(state.area_id)}
+            "Failed to extract knowledge", extra={"summary_id": str(state.summary_id)}
         )
         return {"extracted_knowledge": []}
