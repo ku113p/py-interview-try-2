@@ -274,7 +274,7 @@ async def _find_next_leaf(state: LeafInterviewState) -> dict:
         logger.info("All leaves completed", extra={"area_id": str(state.area_id)})
         return _build_leaf_state(
             None,
-            {"completed_leaf_path": completed_leaf_path, "is_fully_covered": True},
+            {"completed_leaf_path": completed_leaf_path},
         )
 
     logger.info("Moving to next leaf", extra={"new_leaf_id": str(next_leaf.id)})

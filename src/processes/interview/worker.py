@@ -48,7 +48,6 @@ async def _init_graph_state(msg: ClientMessage, user: User) -> tuple[State, list
         messages_to_save={},
         is_successful=None,
         area_id=area_id,
-        is_fully_covered=False,
     )
     return state, temp_files
 

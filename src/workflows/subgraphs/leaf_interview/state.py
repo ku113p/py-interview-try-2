@@ -36,4 +36,3 @@ class LeafInterviewState(BaseModel):
     is_successful: bool | None = None
     completed_leaf_id: uuid.UUID | None = None
     completed_leaf_path: str | None = None
-    is_fully_covered: bool = False

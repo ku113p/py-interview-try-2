@@ -22,7 +22,6 @@ class SaveHistoryState(BaseModel):
     active_leaf_id: uuid.UUID | None = None
     completed_leaf_id: uuid.UUID | None = None  # Leaf just marked complete
     question_text: str | None = None
-    is_fully_covered: bool = False
 
     # Deferred DB write data from subgraph nodes
     turn_summary_text: str | None = None  # Per-turn summary text

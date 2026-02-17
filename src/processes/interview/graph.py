@@ -100,7 +100,7 @@ def get_graph():
     )
     # leaf_interview subgraph uses LeafInterviewState which maps to/from State:
     # - Input: user, area_id, messages
-    # - Output: messages_to_save, is_successful, completed_leaf_id, is_fully_covered,
+    # - Output: messages_to_save, is_successful, completed_leaf_id,
     #           active_leaf_id, question_text, turn_summary_text, set_covered_at
     leaf_interview_graph = build_leaf_interview_graph(
         get_llm_quick_evaluate(),
