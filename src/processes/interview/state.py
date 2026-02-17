@@ -7,7 +7,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict
 
 from src.domain import ClientMessage, InputMode, User
-from src.shared.interview_models import AreaCoverageAnalysis, LeafEvaluation
+from src.shared.interview_models import LeafEvaluation
 from src.shared.message_buckets import MessageBuckets, merge_message_buckets
 
 
@@ -61,8 +61,6 @@ class State(BaseModel):
     messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     is_successful: bool | None = None
     area_id: uuid.UUID
-    is_fully_covered: bool
-    coverage_analysis: AreaCoverageAnalysis | None = None
     command_response: str | None = None
 
     # Leaf interview state

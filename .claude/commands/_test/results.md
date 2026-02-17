@@ -159,7 +159,6 @@ Test cases use the following expected fields:
 ### 2026-02-11: Completed Area Prevention Feature
 
 - Added test cases 25 and 26 for completed area handling
-- New `extracted_at` column tracks when knowledge extraction completed
 - Messaging a completed area shows notification with `/reset-area` command
 - Test 25 now passing - completed area response working correctly
 

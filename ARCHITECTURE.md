@@ -386,8 +386,6 @@ State:
   messages_to_save: MessageBuckets
   is_successful: bool          # Operation success flag
   area_id: UUID
-  coverage_analysis: AreaCoverageAnalysis
-  is_fully_covered: bool       # All leaves covered, triggers extract worker
   command_response: str | None # Set when command handled (ends workflow early)
 
   # Leaf interview state (mapped from LeafInterviewState subgraph output)
