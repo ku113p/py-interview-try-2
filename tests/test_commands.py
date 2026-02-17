@@ -593,30 +593,11 @@ class TestHandleResetAreaInit:
                 title="Other's Area",
                 parent_id=None,
                 user_id=other_user_id,
-                extracted_at=time.time(),
             ),
         )
 
         result = await handle_reset_area_init(sample_user.id, str(area_id))
         assert "permission" in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_area_not_extracted(self, temp_db, sample_user):
-        """Cannot reset area that hasn't been extracted."""
-        area_id = new_id()
-        await db.LifeAreasManager.create(
-            area_id,
-            db.LifeArea(
-                id=area_id,
-                title="My Area",
-                parent_id=None,
-                user_id=sample_user.id,
-                extracted_at=None,
-            ),
-        )
-
-        result = await handle_reset_area_init(sample_user.id, str(area_id))
-        assert "not been extracted" in result
 
     @pytest.mark.asyncio
     async def test_generates_token(self, temp_db, sample_user):
@@ -632,7 +613,6 @@ class TestHandleResetAreaInit:
                 title="My Area",
                 parent_id=None,
                 user_id=sample_user.id,
-                extracted_at=time.time(),
             ),
         )
 
@@ -678,7 +658,7 @@ class TestHandleResetAreaConfirm:
         _reset_area_token_lookup.clear()
         now = time.time()
 
-        # Create area with extraction data
+        # Create area with history data
         area_id, history_id = new_id(), new_id()
         await db.LifeAreasManager.create(
             area_id,
@@ -687,7 +667,6 @@ class TestHandleResetAreaConfirm:
                 title="My Area",
                 parent_id=None,
                 user_id=sample_user.id,
-                extracted_at=now,
             ),
         )
         # Create history and link to leaf
@@ -711,8 +690,9 @@ class TestHandleResetAreaConfirm:
 
         assert "Reset complete" in result and "My Area" in result
 
-        area = await db.LifeAreasManager.get_by_id(area_id)
-        assert area is not None and area.extracted_at is None
+        # History should be cleared
+        messages = await db.LeafHistoryManager.get_messages(area_id)
+        assert len(messages) == 0
 
 
 class TestProcessCommandResetArea:
@@ -729,7 +709,6 @@ class TestProcessCommandResetArea:
                 title="Area",
                 parent_id=None,
                 user_id=sample_user.id,
-                extracted_at=time.time(),
             ),
         )
 
@@ -769,7 +748,6 @@ class TestResetAreaTokenIsolation:
                 title="A's Area",
                 parent_id=None,
                 user_id=user_a.id,
-                extracted_at=time.time(),
             ),
         )
 

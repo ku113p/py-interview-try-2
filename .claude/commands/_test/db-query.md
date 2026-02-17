@@ -18,8 +18,8 @@ sqlite3 -header -column interview.db "$ARGUMENTS"
 SELECT
   (SELECT COUNT(*) FROM life_areas WHERE user_id = 'UUID') as areas,
   (SELECT COUNT(*) FROM life_areas WHERE user_id = 'UUID' AND parent_id IS NOT NULL) as sub_areas,
-  (SELECT COUNT(*) FROM leaf_coverage WHERE root_area_id IN (SELECT id FROM life_areas WHERE user_id = 'UUID') AND summary_text IS NOT NULL) as summaries,
-  (SELECT COUNT(*) FROM user_knowledge_areas WHERE user_id = 'UUID') as knowledge,
+  (SELECT COUNT(*) FROM summaries JOIN life_areas ON summaries.area_id = life_areas.id WHERE life_areas.user_id = 'UUID') as summaries,
+  (SELECT COUNT(DISTINCT uka.knowledge_id) FROM user_knowledge_areas uka JOIN life_areas la ON uka.area_id = la.id WHERE la.user_id = 'UUID') as knowledge,
   (SELECT COUNT(*) FROM histories WHERE user_id = 'UUID') as history
 ```
 
@@ -42,6 +42,19 @@ WITH RECURSIVE descendants AS (
   FROM life_areas la JOIN descendants d ON la.parent_id = d.id
 )
 SELECT id, title, depth FROM descendants WHERE depth > 0 ORDER BY depth, title
+```
+
+**List summaries for a user:**
+```sql
+SELECT s.id, la.title, substr(s.summary_text, 1, 60) as summary_preview
+FROM summaries s JOIN life_areas la ON s.area_id = la.id WHERE la.user_id = 'UUID' ORDER BY s.created_at
+```
+
+**List knowledge for a user:**
+```sql
+SELECT uk.id, uk.description, uk.kind FROM user_knowledge uk
+JOIN user_knowledge_areas uka ON uk.id = uka.knowledge_id
+JOIN life_areas la ON uka.area_id = la.id WHERE la.user_id = 'UUID'
 ```
 
 **List history entries:**

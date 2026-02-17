@@ -1,7 +1,6 @@
 """Unit tests for extract_worker module."""
 
 import asyncio
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,10 +13,6 @@ from src.workflows.subgraphs.knowledge_extraction.knowledge_nodes import (
     KnowledgeExtractionResult,
     KnowledgeItem,
 )
-from src.workflows.subgraphs.knowledge_extraction.nodes import (
-    ExtractionResult,
-    SubAreaSummary,
-)
 
 
 class TestExtractWorker:
@@ -27,7 +22,7 @@ class TestExtractWorker:
     async def test_worker_processes_task(self):
         """Should process a task from the extract queue."""
         channels = Channels()
-        task = ExtractTask(area_id=uuid.uuid4())
+        task = ExtractTask(summary_id=new_id())
         await channels.extract.put(task)
 
         with (
@@ -56,8 +51,8 @@ class TestExtractWorker:
     async def test_worker_handles_exception(self):
         """Should continue processing after an exception."""
         channels = Channels()
-        task1 = ExtractTask(area_id=uuid.uuid4())
-        task2 = ExtractTask(area_id=uuid.uuid4())
+        task1 = ExtractTask(summary_id=new_id())
+        task2 = ExtractTask(summary_id=new_id())
         await channels.extract.put(task1)
         await channels.extract.put(task2)
 
@@ -85,10 +80,10 @@ class TestExtractWorker:
 
     @pytest.mark.asyncio
     async def test_worker_invokes_with_correct_state(self):
-        """Should invoke graph with KnowledgeExtractionState containing area_id."""
+        """Should invoke graph with KnowledgeExtractionState containing summary_id."""
         channels = Channels()
-        area_id = uuid.uuid4()
-        await channels.extract.put(ExtractTask(area_id=area_id))
+        summary_id = new_id()
+        await channels.extract.put(ExtractTask(summary_id=summary_id))
 
         with (
             patch("src.processes.extract.worker.LLMClientBuilder") as mock_ai,
@@ -107,36 +102,27 @@ class TestExtractWorker:
             await asyncio.wait_for(pool, timeout=2.0)
 
             call_args = mock_graph.ainvoke.call_args[0][0]
-            assert call_args.area_id == area_id
+            assert call_args.summary_id == summary_id
 
 
-async def _create_leaf_with_messages(user_id, area_id):
-    """Helper to create a leaf area with summary in leaf_coverage."""
-    area = db.LifeArea(id=area_id, title="Skills", parent_id=None, user_id=user_id)
+async def _create_summary_for_extraction(user_id, area_id):
+    """Helper to create a leaf area with a summary in summaries table."""
+    now = get_timestamp()
+    area = db.LifeArea(
+        id=area_id, title="Skills", parent_id=None, user_id=user_id, covered_at=now
+    )
     await db.LifeAreasManager.create(area_id, area)
 
-    now = get_timestamp()
-    # Create leaf coverage with summary (as the main graph would)
-    coverage = db.LeafCoverage(
-        leaf_id=area_id,
-        root_area_id=area_id,
-        status="covered",
+    summary_id = await db.SummariesManager.create_summary(
+        area_id=area_id,
         summary_text="Proficient in Python with 5 years experience",
-        updated_at=now,
+        created_at=now,
     )
-    await db.LeafCoverageManager.create(area_id, coverage)
+    return summary_id
 
 
 def _create_extraction_mock_llm():
-    """Create mock LLM that handles both summary and knowledge extraction."""
-    summary_result = ExtractionResult(
-        summaries=[
-            SubAreaSummary(
-                sub_area="Skills",
-                summary="Proficient in Python with 5 years experience",
-            )
-        ]
-    )
+    """Create mock LLM returning sample knowledge items."""
     knowledge_result = KnowledgeExtractionResult(
         items=[
             KnowledgeItem(
@@ -148,16 +134,11 @@ def _create_extraction_mock_llm():
         ]
     )
 
-    mock_summary_llm = AsyncMock()
-    mock_summary_llm.ainvoke.return_value = summary_result
     mock_knowledge_llm = AsyncMock()
     mock_knowledge_llm.ainvoke.return_value = knowledge_result
 
-    def mock_with_structured_output(schema):
-        return mock_summary_llm if schema == ExtractionResult else mock_knowledge_llm
-
     mock_llm = MagicMock()
-    mock_llm.with_structured_output.side_effect = mock_with_structured_output
+    mock_llm.with_structured_output.return_value = mock_knowledge_llm
     return mock_llm
 
 
@@ -180,8 +161,11 @@ async def _run_extract_pool_with_mocks(channels, mock_llm):
         await asyncio.wait_for(pool, timeout=5.0)
 
 
-async def _verify_extraction_results(area_id, user_id):
-    """Verify extraction created knowledge, links, and marked area extracted."""
+async def _verify_extraction_results(area_id, user_id, summary_id):
+    """Verify extraction wrote vector, created knowledge, and created links."""
+    updated = await db.SummariesManager.get_by_id(summary_id)
+    assert updated.vector == [0.1, 0.2, 0.3]
+
     all_knowledge = await db.UserKnowledgeManager.list()
     assert len(all_knowledge) == 2
     descriptions = [k.description for k in all_knowledge]
@@ -192,25 +176,21 @@ async def _verify_extraction_results(area_id, user_id):
     assert len(links) == 2
     assert all(link.area_id == area_id for link in links)
 
-    # Area should be marked as extracted
-    area = await db.LifeAreasManager.get_by_id(area_id)
-    assert area.extracted_at is not None
 
-
-class TestFullLeafExtractionFlow:
-    """Integration tests for the complete leaf extraction flow."""
+class TestFullSummaryExtractionFlow:
+    """Integration tests for the complete per-summary extraction flow."""
 
     @pytest.mark.asyncio
-    async def test_full_leaf_extraction_flow(self, temp_db):
-        """Integration test: leaf messages → extract queued → knowledge extracted."""
+    async def test_full_summary_extraction_flow(self, temp_db):
+        """Integration test: summary saved → extract queued → knowledge extracted."""
         user_id, area_id = new_id(), new_id()
-        await _create_leaf_with_messages(user_id, area_id)
+        summary_id = await _create_summary_for_extraction(user_id, area_id)
 
         channels = Channels()
-        await channels.extract.put(ExtractTask(area_id=area_id))
+        await channels.extract.put(ExtractTask(summary_id=summary_id))
 
         await _run_extract_pool_with_mocks(channels, _create_extraction_mock_llm())
-        await _verify_extraction_results(area_id, user_id)
+        await _verify_extraction_results(area_id, user_id, summary_id)
 
 
 class TestWorkerPool:

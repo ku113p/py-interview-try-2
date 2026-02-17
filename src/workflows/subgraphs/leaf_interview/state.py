@@ -21,21 +21,18 @@ class LeafInterviewState(BaseModel):
     user: User
     area_id: uuid.UUID
     messages: Annotated[list[BaseMessage], add_messages]
-    area_already_extracted: bool = False
 
     # Working state (set during subgraph execution)
     active_leaf_id: uuid.UUID | None = None
     question_text: str | None = None
-    all_leaves_done: bool = False
     leaf_evaluation: LeafEvaluation | None = None
 
     # Deferred DB write data (collected for atomic persist in save_history)
-    leaf_summary_text: str | None = None
-    leaf_completion_status: str | None = None  # "covered" or "skipped"
+    turn_summary_text: str | None = None  # Summary of this turn (deferred write)
+    set_covered_at: bool = False  # Signal to save_history to set covered_at
 
     # Output
     messages_to_save: Annotated[MessageBuckets, merge_message_buckets]
     is_successful: bool | None = None
     completed_leaf_id: uuid.UUID | None = None
     completed_leaf_path: str | None = None
-    is_fully_covered: bool = False
