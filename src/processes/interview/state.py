@@ -64,7 +64,6 @@ class State(BaseModel):
     is_fully_covered: bool
     coverage_analysis: AreaCoverageAnalysis | None = None
     command_response: str | None = None
-    area_already_extracted: bool = False
 
     # Leaf interview state
     active_leaf_id: uuid.UUID | None = None
@@ -74,7 +73,6 @@ class State(BaseModel):
     )
     leaf_evaluation: LeafEvaluation | None = None
     question_text: str | None = None  # The question we asked for current leaf
-    all_leaves_done: bool = False  # True when all leaves covered/skipped
 
     # Deferred DB write data (collected for atomic persist in save_history)
     turn_summary_text: str | None = None

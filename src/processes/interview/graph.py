@@ -99,7 +99,7 @@ def get_graph():
         {"recursion_limit": MAX_AREA_RECURSION}
     )
     # leaf_interview subgraph uses LeafInterviewState which maps to/from State:
-    # - Input: user, area_id, messages, area_already_extracted
+    # - Input: user, area_id, messages
     # - Output: messages_to_save, is_successful, completed_leaf_id, is_fully_covered,
     #           active_leaf_id, question_text, turn_summary_text, set_covered_at
     leaf_interview_graph = build_leaf_interview_graph(

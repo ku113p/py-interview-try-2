@@ -90,9 +90,9 @@ save_history               [WRITES: ALL changes in one transaction]
 
 **File**: `src/workflows/subgraphs/knowledge_extraction/graph.py`
 
-**Old flow**: `save_summary → extract_knowledge → save_knowledge → mark_extracted` (three independent DB writes)
+**Old flow**: `save_summary → extract_knowledge → save_knowledge` (three independent DB writes)
 
-**Fix**: Replaced with `prepare_summary → extract_knowledge → persist_extraction`. The `prepare_summary` node only computes the embedding vector (no DB write). The `persist_extraction` node writes vector + knowledge items + mark_extracted in a single `transaction()`. Leaf vectors are stored directly in `leaf_coverage.vector`.
+**Fix**: Replaced with `prepare_summary → extract_knowledge → persist_extraction`. The `prepare_summary` node only computes the embedding vector (no DB write). The `persist_extraction` node writes vector + knowledge items in a single `transaction()`. Leaf vectors are stored directly in `summaries.vector`.
 
 Additionally, `_load_leaf_area_data` now reads from `leaf_coverage.summary_text` (written by the main graph) instead of raw `leaf_history` messages, avoiding redundant LLM summarization. Embedding is deferred from the interview hot path to the extraction process.
 
@@ -190,7 +190,7 @@ None of these apply to the current project.
 | ~~`_mark_leaf_complete`~~ | removed | — | — | Replaced by `_prepare_leaf_completion` (pure compute) |
 | ~~`_update_leaf_context`~~ | removed | — | — | Moved to `save_history` transaction |
 | `area_tools` (CRUD) | `area_loop/nodes.py` | YES | YES | SAFE |
-| `persist_extraction` (vector + knowledge + mark_extracted) | `knowledge_extraction/nodes.py` | YES | YES | SAFE — all extraction writes atomic |
+| `persist_extraction` (vector + knowledge) | `knowledge_extraction/nodes.py` | YES | YES | SAFE — all extraction writes atomic |
 | `/delete` (full cascade) | `handlers.py` | YES | YES | SAFE |
 | `/clear` (history) | `handlers.py` | YES | YES | SAFE |
 | `/reset-area` | `handlers.py` | YES | YES | SAFE — but missing knowledge cleanup |

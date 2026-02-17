@@ -33,7 +33,6 @@ def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> LeafInterviewStat
         "active_leaf_id": None,
         "leaf_evaluation": None,
         "question_text": None,
-        "all_leaves_done": False,
         "completed_leaf_path": None,
         "turn_summary_text": None,
         "set_covered_at": False,
@@ -46,21 +45,24 @@ def _create_state(user: User, area_id: uuid.UUID, **kwargs) -> LeafInterviewStat
     )
 
 
-async def _setup_leaf_with_history(user_id, area_id, leaf_id):
-    """Create area, leaf, and history records for tests."""
+async def _setup_leaf_with_history(user_id, area_id, leaf_id) -> uuid.UUID:
+    """Create area, leaf, and history records for tests.
+
+    Returns the history_id of the assistant (question) message.
+    """
     now = get_timestamp()
     area = db.LifeArea(id=area_id, title="Career", parent_id=None, user_id=user_id)
     await db.LifeAreasManager.create(area_id, area)
     leaf = db.LifeArea(id=leaf_id, title="Skills", parent_id=area_id, user_id=user_id)
     await db.LifeAreasManager.create(leaf_id, leaf)
 
-    for i, (role, content) in enumerate(
+    question_hist_id = new_id()
+    for i, (hist_id, role, content) in enumerate(
         [
-            ("assistant", "What Python skills?"),
-            ("user", "I have 5 years Python experience."),
+            (question_hist_id, "assistant", "What Python skills?"),
+            (new_id(), "user", "I have 5 years Python experience."),
         ]
     ):
-        hist_id = new_id()
         hist = db.History(
             id=hist_id,
             message_data={"role": role, "content": content},
@@ -69,6 +71,8 @@ async def _setup_leaf_with_history(user_id, area_id, leaf_id):
         )
         await db.HistoriesManager.create(hist_id, hist)
         await db.LeafHistoryManager.link(leaf_id, hist_id)
+
+    return question_hist_id
 
 
 async def _setup_two_leaves(user_id, area_id, leaf1_covered=False):
@@ -113,7 +117,7 @@ class TestLoadInterviewContext:
 
     @pytest.mark.asyncio
     async def test_returns_all_leaves_done_when_no_sub_areas(self, temp_db):
-        """Should mark all_leaves_done when root has no children."""
+        """Should set active_leaf_id=None when root has no children."""
         user_id, area_id = new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
 
@@ -123,7 +127,6 @@ class TestLoadInterviewContext:
         state = _create_state(user, area_id)
         result = await load_interview_context(state)
 
-        assert result["all_leaves_done"] is True
         assert result["active_leaf_id"] is None
 
     @pytest.mark.asyncio
@@ -144,30 +147,7 @@ class TestLoadInterviewContext:
         state = _create_state(user, area_id)
         result = await load_interview_context(state)
 
-        assert result["all_leaves_done"] is False
         assert result["active_leaf_id"] == leaf_id
-
-    @pytest.mark.asyncio
-    async def test_returns_already_extracted_when_area_has_extracted_at(self, temp_db):
-        """Should bail early when area already has extracted_at set."""
-        user_id, area_id = new_id(), new_id()
-        user = User(id=user_id, mode=InputMode.auto)
-
-        area = db.LifeArea(
-            id=area_id,
-            title="Career",
-            parent_id=None,
-            user_id=user_id,
-            extracted_at=get_timestamp(),
-        )
-        await db.LifeAreasManager.create(area_id, area)
-
-        state = _create_state(user, area_id)
-        result = await load_interview_context(state)
-
-        assert result["area_already_extracted"] is True
-        assert result["all_leaves_done"] is True
-        assert result["active_leaf_id"] is None
 
     @pytest.mark.asyncio
     async def test_skips_covered_leaf_and_returns_next(self, temp_db):
@@ -182,11 +162,10 @@ class TestLoadInterviewContext:
         result = await load_interview_context(state)
 
         assert result["active_leaf_id"] == leaf2_id
-        assert result["all_leaves_done"] is False
 
     @pytest.mark.asyncio
     async def test_all_leaves_done_when_all_covered(self, temp_db):
-        """Should return all_leaves_done when all leaves have covered_at set."""
+        """Should return active_leaf_id=None when all leaves have covered_at set."""
         user_id, area_id = new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
         now = get_timestamp()
@@ -207,7 +186,7 @@ class TestLoadInterviewContext:
         state = _create_state(user, area_id)
         result = await load_interview_context(state)
 
-        assert result["all_leaves_done"] is True
+        assert result["active_leaf_id"] is None
 
 
 class TestQuickEvaluate:
@@ -215,9 +194,9 @@ class TestQuickEvaluate:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_all_leaves_done(self):
-        """Should return None evaluation when all leaves done."""
+        """Should return None evaluation when active_leaf_id is None."""
         user = User(id=new_id(), mode=InputMode.auto)
-        state = _create_state(user, new_id(), all_leaves_done=True)
+        state = _create_state(user, new_id(), active_leaf_id=None)
 
         mock_llm = MagicMock()
         result = await quick_evaluate(state, mock_llm)
@@ -289,9 +268,9 @@ class TestUpdateCoverageStatus:
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_all_leaves_done(self):
-        """Should return is_successful when all leaves are done."""
+        """Should return is_successful when active_leaf_id is None."""
         user = User(id=new_id(), mode=InputMode.auto)
-        state = _create_state(user, new_id(), all_leaves_done=True)
+        state = _create_state(user, new_id(), active_leaf_id=None)
         mock_llm = MagicMock()
 
         result = await update_coverage_status(state, mock_llm)
@@ -382,9 +361,9 @@ class TestSelectNextLeaf:
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_all_done(self):
-        """Should return is_successful when all leaves already done."""
+        """Should return is_successful when active_leaf_id is None."""
         user = User(id=new_id(), mode=InputMode.auto)
-        state = _create_state(user, new_id(), all_leaves_done=True)
+        state = _create_state(user, new_id(), active_leaf_id=None)
 
         result = await select_next_leaf(state)
 
@@ -403,7 +382,6 @@ class TestSelectNextLeaf:
 
         result = await select_next_leaf(state)
 
-        assert result["all_leaves_done"] is False
         assert result["completed_leaf_path"] is None
 
     @pytest.mark.asyncio
@@ -444,7 +422,7 @@ class TestGenerateLeafResponse:
     async def test_bails_out_on_prior_failure(self):
         """Should return empty dict when is_successful is False."""
         user = User(id=new_id(), mode=InputMode.auto)
-        state = _create_state(user, new_id(), is_successful=False, all_leaves_done=True)
+        state = _create_state(user, new_id(), is_successful=False, active_leaf_id=None)
         mock_llm = MagicMock()
 
         result = await generate_leaf_response(state, mock_llm)
@@ -456,7 +434,7 @@ class TestGenerateLeafResponse:
     async def test_generates_completion_when_all_done(self):
         """Should generate completion message when all leaves done."""
         user = User(id=new_id(), mode=InputMode.auto)
-        state = _create_state(user, new_id(), all_leaves_done=True)
+        state = _create_state(user, new_id(), active_leaf_id=None)
 
         mock_response = MagicMock()
         mock_response.content = "Thank you for sharing! This area is complete."
@@ -529,7 +507,7 @@ class TestSaveHistoryLeafPersistence:
         """Should save turn summary and return pending_summary_id."""
         user_id, area_id, leaf_id = new_id(), new_id(), new_id()
         user = User(id=user_id, mode=InputMode.auto)
-        await _setup_leaf_with_history(user_id, area_id, leaf_id)
+        question_hist_id = await _setup_leaf_with_history(user_id, area_id, leaf_id)
 
         ts = get_timestamp()
         state = _create_save_state(
@@ -545,12 +523,47 @@ class TestSaveHistoryLeafPersistence:
         assert summaries[0].summary_text == "User has Python skills."
         assert summaries[0].vector is None  # Vector deferred to extraction
 
-        # question_id should be set to the last AI message in leaf history
-        assert summaries[0].question_id is not None
+        # question_id must point to the question asked before this turn, not any
+        # new AI message that may have been inserted in the same transaction
+        assert summaries[0].question_id == question_hist_id
 
         # save_history should return pending_summary_id
         assert "pending_summary_id" in result
         assert result["pending_summary_id"] == summaries[0].id
+
+    @pytest.mark.asyncio
+    async def test_question_id_not_off_by_one_when_ai_message_in_same_save(
+        self, temp_db
+    ):
+        """question_id must not point to the new AI message saved in the same call.
+
+        Regression test: _resolve_question_id must run before _save_messages.
+        If the new AI follow-up is inserted first, get_messages_with_ids would
+        return it as the 'last AI message', giving the wrong question_id.
+        """
+        user_id, area_id, leaf_id = new_id(), new_id(), new_id()
+        user = User(id=user_id, mode=InputMode.auto)
+        question_hist_id = await _setup_leaf_with_history(user_id, area_id, leaf_id)
+
+        ts = get_timestamp()
+        # Both the user answer AND the AI follow-up are saved in one call —
+        # the follow-up must NOT become the question_id.
+        state = _create_save_state(
+            user,
+            messages_to_save={
+                ts: [
+                    HumanMessage(content="I know Python well."),
+                    AIMessage(content="Tell me more about your projects."),
+                ]
+            },
+            active_leaf_id=leaf_id,
+            turn_summary_text="User knows Python well.",
+        )
+        await save_history(state)
+
+        summaries = await db.SummariesManager.list_by_area(leaf_id)
+        assert len(summaries) == 1
+        assert summaries[0].question_id == question_hist_id
 
     @pytest.mark.asyncio
     async def test_saves_summary_and_covered_at_together(self, temp_db):

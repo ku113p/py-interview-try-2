@@ -88,8 +88,13 @@ async def ensure_column_async(
 async def _run_migrations(conn: aiosqlite.Connection) -> None:
     """Run schema migrations in order."""
     await ensure_column_async(conn, "users", "current_area_id", "current_area_id TEXT")
-    await ensure_column_async(conn, "life_areas", "extracted_at", "extracted_at REAL")
     await ensure_column_async(conn, "life_areas", "covered_at", "covered_at REAL")
+
+    # Drop deprecated extracted_at column (broken and unused)
+    try:
+        await conn.execute("ALTER TABLE life_areas DROP COLUMN extracted_at")
+    except Exception:
+        pass  # column may not exist on fresh DB
 
     # Drop deprecated tables
     for table in (

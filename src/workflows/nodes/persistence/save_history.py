@@ -89,11 +89,33 @@ async def _save_messages(state: SaveHistoryState, conn) -> uuid.UUID | None:
     return answer_id
 
 
+async def _resolve_question_id(state: SaveHistoryState, conn) -> uuid.UUID | None:
+    """Find the last AI question for this turn before new messages are inserted.
+
+    Must be called before _save_messages so the new AI response has not yet
+    been written; otherwise the lookup returns the transition question instead
+    of the one the user was answering.
+    """
+    if not state.turn_summary_text:
+        return None
+    leaf_id = state.completed_leaf_id or state.active_leaf_id
+    if not leaf_id:
+        return None
+    messages_with_ids = await db.LeafHistoryManager.get_messages_with_ids(
+        leaf_id, conn=conn
+    )
+    for msg_id, msg in reversed(messages_with_ids):
+        if msg.get("role") in ("ai", "assistant"):
+            return msg_id
+    return None
+
+
 async def _save_turn_summary(
     state: SaveHistoryState,
     conn,
     now: float,
     answer_id: uuid.UUID | None = None,
+    question_id: uuid.UUID | None = None,
 ) -> uuid.UUID | None:
     """Save turn summary if present (deferred write from create_turn_summary).
 
@@ -105,15 +127,6 @@ async def _save_turn_summary(
     leaf_id = state.completed_leaf_id or state.active_leaf_id
     if not leaf_id:
         return None
-
-    question_id: uuid.UUID | None = None
-    messages_with_ids = await db.LeafHistoryManager.get_messages_with_ids(
-        leaf_id, conn=conn
-    )
-    for msg_id, msg in reversed(messages_with_ids):
-        if msg.get("role") in ("ai", "assistant"):
-            question_id = msg_id
-            break
 
     summary_id = await db.SummariesManager.create_summary(
         area_id=leaf_id,
@@ -128,14 +141,11 @@ async def _save_turn_summary(
 
 
 async def _save_leaf_completion(state: SaveHistoryState, conn, now: float) -> None:
-    """Set covered_at and mark_extracted when leaf is complete or skipped."""
+    """Set covered_at on the completed leaf."""
     if not state.completed_leaf_id or not state.set_covered_at:
         return
 
     await db.LifeAreasManager.set_covered_at(state.completed_leaf_id, now, conn=conn)
-    await db.LifeAreasManager.mark_extracted(
-        state.completed_leaf_id, conn=conn, timestamp=now
-    )
     logger.info("Set covered_at", extra={"leaf_id": str(state.completed_leaf_id)})
 
 
@@ -155,8 +165,11 @@ async def save_history(state: SaveHistoryState) -> dict:
 
     now = get_timestamp()
     async with transaction() as conn:
+        question_id = await _resolve_question_id(state, conn)
         answer_id = await _save_messages(state, conn)
-        summary_id = await _save_turn_summary(state, conn, now, answer_id=answer_id)
+        summary_id = await _save_turn_summary(
+            state, conn, now, answer_id=answer_id, question_id=question_id
+        )
         await _save_leaf_completion(state, conn, now)
 
     result: dict = {}

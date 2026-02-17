@@ -71,7 +71,7 @@ START
 load_interview_context        # Pick first uncovered leaf
   ↓
 route_after_context_load
-  ├─→ (all_leaves_done OR area_already_extracted) → completed_area_response → END
+  ├─→ (active_leaf_id is None) → completed_area_response → END
   ├─→ create_turn_summary     # First path: process user's answer
   │     ↓
   │   quick_evaluate          # Evaluate answer using accumulated summaries
@@ -115,7 +115,7 @@ Commands are handled in the graph via `handle_command` node, making them transpo
 | `/mode` | Show current input mode |
 | `/mode <name>` | Change mode (auto, interview, areas) |
 | `/reset-area_<id>` | Start area reset (returns confirmation token) |
-| `/reset-area_<token>` | Confirm reset (deletes summaries/knowledge, clears extracted_at) |
+| `/reset-area_<token>` | Confirm reset (deletes summaries/knowledge, clears covered_at) |
 | `/exit`, `/exit_N` | CLI-only: Exit process (handled in transport) |
 
 ### Deletion Order (FK-safe)
@@ -169,7 +169,7 @@ Per-turn knowledge extraction (triggered after each answered turn summary is sav
 - `extract_knowledge`: Extract skills/facts via LLM from `summary_content`
 - `persist_extraction`: Atomic write of vector to `summaries.vector` + knowledge items to `user_knowledge`
 
-`mark_extracted` is called in `save_history._save_leaf_completion` when the leaf is marked covered.
+`covered_at` is set in `save_history._save_leaf_completion` when the leaf is marked covered.
 
 ## Process Architecture
 
@@ -230,7 +230,7 @@ AuthRequest           # transport → auth (provider, external_id, display_name,
 2. **Background Extraction**:
    - Graph worker queues `ExtractTask(summary_id=...)` each time a turn summary is saved
    - Extract workers vectorize the summary and extract knowledge items (fire-and-forget)
-   - `mark_extracted` on the leaf area is done in `save_history` at leaf completion
+   - `covered_at` on the leaf area is set in `save_history` at leaf completion
 
 3. **Graceful Shutdown**:
    - Shared `shutdown` event signals all pools
@@ -310,7 +310,7 @@ User ID mapping uses deterministic UUID5 from Telegram user ID, ensuring the sam
 |-------|---------|
 | `users` | User profiles (id, mode, current_area_id) |
 | `histories` | Conversation messages (JSON) |
-| `life_areas` | Topics with hierarchy (parent_id, covered_at, extracted_at) |
+| `life_areas` | Topics with hierarchy (parent_id, covered_at) |
 | `leaf_history` | Join table linking leaves to their conversation messages |
 | `summaries` | Per-turn summaries (summary_text, question_id, answer_id, vector) |
 | `user_knowledge` | Skills/facts extracted |
@@ -389,15 +389,13 @@ State:
   coverage_analysis: AreaCoverageAnalysis
   is_fully_covered: bool       # All leaves covered, triggers extract worker
   command_response: str | None # Set when command handled (ends workflow early)
-  area_already_extracted: bool # True if area has extracted_at set
 
   # Leaf interview state (mapped from LeafInterviewState subgraph output)
-  active_leaf_id: UUID | None       # Current leaf being asked about
+  active_leaf_id: UUID | None       # Current leaf being asked about (None = all covered)
   completed_leaf_id: UUID | None    # Leaf just marked complete (for extraction)
   completed_leaf_path: str | None   # Path of just-completed leaf (for transition msg)
   leaf_evaluation: LeafEvaluation | None  # complete/partial/skipped
   question_text: str | None         # The question we asked for current leaf
-  all_leaves_done: bool             # True when all leaves covered/skipped
 
   # Deferred DB write data (collected for atomic persist in save_history)
   turn_summary_text: str | None     # Per-turn summary text

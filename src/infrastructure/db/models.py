@@ -26,7 +26,6 @@ class LifeArea:
     title: str
     parent_id: uuid.UUID | None
     user_id: uuid.UUID
-    extracted_at: float | None = None
     covered_at: float | None = None
 
 

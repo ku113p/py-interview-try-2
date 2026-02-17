@@ -20,7 +20,6 @@ def _create_state(
     user: User,
     messages: list,
     target: Target = Target.small_talk,
-    area_already_extracted: bool = False,
     area_id=None,
 ) -> State:
     """Helper to create test State objects."""
@@ -33,15 +32,13 @@ def _create_state(
         messages=messages,
         messages_to_save={},
         is_fully_covered=False,
-        area_already_extracted=area_already_extracted,
     )
 
 
 def _create_leaf_interview_state(
     user: User,
     messages: list,
-    area_already_extracted: bool = False,
-    all_leaves_done: bool = False,
+    active_leaf_id=None,
     area_id=None,
 ) -> LeafInterviewState:
     """Helper to create test LeafInterviewState objects."""
@@ -51,8 +48,7 @@ def _create_leaf_interview_state(
         messages=messages,
         messages_to_save={},
         is_fully_covered=False,
-        area_already_extracted=area_already_extracted,
-        all_leaves_done=all_leaves_done,
+        active_leaf_id=active_leaf_id,
     )
 
 
@@ -163,7 +159,7 @@ class TestRouteByTarget:
 
     def test_routes_to_leaf_interview(self, sample_user):
         """Should route to leaf_interview for conduct_interview target."""
-        state = _create_state(sample_user, [], Target.conduct_interview)
+        state = _create_state(sample_user, [], target=Target.conduct_interview)
 
         result = route_by_target(state)
 
@@ -171,7 +167,7 @@ class TestRouteByTarget:
 
     def test_routes_to_area_loop(self, sample_user):
         """Should route to area_loop for manage_areas target."""
-        state = _create_state(sample_user, [], Target.manage_areas)
+        state = _create_state(sample_user, [], target=Target.manage_areas)
 
         result = route_by_target(state)
 
@@ -179,7 +175,7 @@ class TestRouteByTarget:
 
     def test_routes_to_small_talk_response(self, sample_user):
         """Should route to small_talk_response for small_talk target."""
-        state = _create_state(sample_user, [], Target.small_talk)
+        state = _create_state(sample_user, [], target=Target.small_talk)
 
         result = route_by_target(state)
 
@@ -191,10 +187,8 @@ class TestRouteAfterContextLoad:
 
     def test_routes_to_generate_leaf_response_on_first_turn(self, sample_user):
         """Should route to generate_leaf_response on first turn (no user message)."""
-        state = _create_leaf_interview_state(
-            sample_user, [], area_already_extracted=False
-        )
-        # all_leaves_done defaults to False, no messages
+        leaf_id = new_id()
+        state = _create_leaf_interview_state(sample_user, [], active_leaf_id=leaf_id)
 
         result = route_after_context_load(state)
 
@@ -202,10 +196,11 @@ class TestRouteAfterContextLoad:
 
     def test_routes_to_create_turn_summary_on_subsequent_turn(self, sample_user):
         """Should route to create_turn_summary when user message is present."""
+        leaf_id = new_id()
         state = _create_leaf_interview_state(
             sample_user,
             [HumanMessage(content="I have 5 years Python experience")],
-            area_already_extracted=False,
+            active_leaf_id=leaf_id,
         )
 
         result = route_after_context_load(state)
@@ -213,20 +208,8 @@ class TestRouteAfterContextLoad:
         assert result == "create_turn_summary"
 
     def test_routes_to_completed_area_response_when_all_leaves_done(self, sample_user):
-        """Should route to completed_area_response when all leaves are done."""
-        state = _create_leaf_interview_state(
-            sample_user, [], area_already_extracted=False, all_leaves_done=True
-        )
-
-        result = route_after_context_load(state)
-
-        assert result == "completed_area_response"
-
-    def test_routes_to_completed_area_response_when_extracted(self, sample_user):
-        """Should route to completed_area_response when area is already extracted."""
-        state = _create_leaf_interview_state(
-            sample_user, [], area_already_extracted=True
-        )
+        """Should route to completed_area_response when active_leaf_id is None."""
+        state = _create_leaf_interview_state(sample_user, [], active_leaf_id=None)
 
         result = route_after_context_load(state)
 
@@ -243,7 +226,6 @@ class TestCompletedAreaResponse:
         state = _create_leaf_interview_state(
             sample_user,
             [HumanMessage(content="Tell me about my work")],
-            area_already_extracted=True,
             area_id=area_id,
         )
 
@@ -266,7 +248,6 @@ class TestCompletedAreaResponse:
         state = _create_leaf_interview_state(
             sample_user,
             [HumanMessage(content="More about work")],
-            area_already_extracted=True,
         )
 
         mock_response = MagicMock()
@@ -285,7 +266,6 @@ class TestCompletedAreaResponse:
         state = _create_leaf_interview_state(
             sample_user,
             [HumanMessage(content="Hi")],
-            area_already_extracted=True,
         )
 
         mock_response = MagicMock()
@@ -309,7 +289,6 @@ class TestCompletedAreaResponse:
         state = _create_leaf_interview_state(
             sample_user,
             [HumanMessage(content="Work stuff")],
-            area_already_extracted=True,
             area_id=area_id,
         )
 

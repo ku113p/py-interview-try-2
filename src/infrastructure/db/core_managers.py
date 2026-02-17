@@ -62,20 +62,18 @@ class HistoriesManager(ORMBase[History]):
 
 class LifeAreasManager(ORMBase[LifeArea]):
     _table = "life_areas"
-    _columns = ("id", "title", "parent_id", "user_id", "extracted_at", "covered_at")
+    _columns = ("id", "title", "parent_id", "user_id", "covered_at")
     _user_column = "user_id"
 
     @classmethod
     def _row_to_obj(cls, row: aiosqlite.Row) -> LifeArea:
         parent_id = row["parent_id"]
-        extracted_at = row["extracted_at"]
         covered_at = row["covered_at"]
         return LifeArea(
             id=uuid.UUID(row["id"]),
             title=row["title"],
             parent_id=uuid.UUID(parent_id) if parent_id else None,
             user_id=uuid.UUID(row["user_id"]),
-            extracted_at=extracted_at,
             covered_at=covered_at,
         )
 
@@ -86,45 +84,8 @@ class LifeAreasManager(ORMBase[LifeArea]):
             "title": data.title,
             "parent_id": str(data.parent_id) if data.parent_id else None,
             "user_id": str(data.user_id),
-            "extracted_at": data.extracted_at,
             "covered_at": data.covered_at,
         }
-
-    @classmethod
-    async def mark_extracted(
-        cls,
-        area_id: uuid.UUID,
-        conn: aiosqlite.Connection | None = None,
-        timestamp: float | None = None,
-    ) -> None:
-        """Mark area as extracted with given or current timestamp."""
-        from src.shared.timestamp import get_timestamp
-
-        from .connection import get_connection
-
-        ts = timestamp if timestamp is not None else get_timestamp()
-        query = f"UPDATE {cls._table} SET extracted_at = ? WHERE id = ?"
-        if conn is None:
-            async with get_connection() as local_conn:
-                await local_conn.execute(query, (ts, str(area_id)))
-                await local_conn.commit()
-        else:
-            await conn.execute(query, (ts, str(area_id)))
-
-    @classmethod
-    async def reset_extraction(
-        cls, area_id: uuid.UUID, conn: aiosqlite.Connection | None = None
-    ) -> None:
-        """Clear extracted_at to allow re-extraction."""
-        from .connection import get_connection
-
-        query = f"UPDATE {cls._table} SET extracted_at = NULL WHERE id = ?"
-        if conn is None:
-            async with get_connection() as local_conn:
-                await local_conn.execute(query, (str(area_id),))
-                await local_conn.commit()
-        else:
-            await conn.execute(query, (str(area_id),))
 
     @classmethod
     async def set_covered_at(
@@ -153,15 +114,15 @@ class LifeAreasManager(ORMBase[LifeArea]):
 
         query = """
             WITH RECURSIVE descendants AS (
-                SELECT id, title, parent_id, user_id, extracted_at, covered_at
+                SELECT id, title, parent_id, user_id, covered_at
                 FROM life_areas
                 WHERE parent_id = ?
                 UNION ALL
-                SELECT la.id, la.title, la.parent_id, la.user_id, la.extracted_at, la.covered_at
+                SELECT la.id, la.title, la.parent_id, la.user_id, la.covered_at
                 FROM life_areas la
                 JOIN descendants d ON la.parent_id = d.id
             )
-            SELECT id, title, parent_id, user_id, extracted_at, covered_at FROM descendants
+            SELECT id, title, parent_id, user_id, covered_at FROM descendants
             ORDER BY id
         """
         if conn is None:
@@ -182,15 +143,15 @@ class LifeAreasManager(ORMBase[LifeArea]):
 
         query = """
             WITH RECURSIVE ancestors AS (
-                SELECT id, title, parent_id, user_id, extracted_at, covered_at
+                SELECT id, title, parent_id, user_id, covered_at
                 FROM life_areas
                 WHERE id = (SELECT parent_id FROM life_areas WHERE id = ?)
                 UNION ALL
-                SELECT la.id, la.title, la.parent_id, la.user_id, la.extracted_at, la.covered_at
+                SELECT la.id, la.title, la.parent_id, la.user_id, la.covered_at
                 FROM life_areas la
                 JOIN ancestors a ON la.id = a.parent_id
             )
-            SELECT id, title, parent_id, user_id, extracted_at, covered_at FROM ancestors
+            SELECT id, title, parent_id, user_id, covered_at FROM ancestors
         """
         if conn is None:
             async with get_connection() as local_conn:

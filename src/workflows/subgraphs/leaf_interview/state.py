@@ -21,12 +21,10 @@ class LeafInterviewState(BaseModel):
     user: User
     area_id: uuid.UUID
     messages: Annotated[list[BaseMessage], add_messages]
-    area_already_extracted: bool = False
 
     # Working state (set during subgraph execution)
     active_leaf_id: uuid.UUID | None = None
     question_text: str | None = None
-    all_leaves_done: bool = False
     leaf_evaluation: LeafEvaluation | None = None
 
     # Deferred DB write data (collected for atomic persist in save_history)
