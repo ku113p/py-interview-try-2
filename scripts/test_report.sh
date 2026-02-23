@@ -2,6 +2,9 @@
 # Test runner with complete output for subagent reporting
 # Usage: ./scripts/test_report.sh <case_file> [--repeat N]
 #
+# Database: Uses test-interview.db by default (via INTERVIEW_DB_PATH env var)
+#           Override: INTERVIEW_DB_PATH=custom.db ./scripts/test_report.sh <case_file>
+#
 # Outputs everything needed for report:
 #   1. Test execution logs
 #   2. Final results (PASS/FAIL)

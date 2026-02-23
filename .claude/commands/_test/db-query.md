@@ -17,6 +17,24 @@ Query production database:
 sqlite3 -header -column interview.db "$ARGUMENTS"
 ```
 
+## Quick Examples
+
+**Find recent test users:**
+```bash
+/_test:db-query "SELECT DISTINCT user_id FROM life_areas ORDER BY created_at DESC LIMIT 5"
+```
+
+**Query specific test user's data:**
+```bash
+# Replace with actual UUID from above
+/_test:db-query "SELECT * FROM life_areas WHERE user_id = 'cc546fc0-2dc6-4ffa-bdd4-e791e91f1ef4'"
+```
+
+**Count all test data:**
+```bash
+/_test:db-query "SELECT COUNT(DISTINCT user_id) as users, COUNT(*) as total_areas FROM life_areas"
+```
+
 ## Common Queries
 
 **Count all entities for a user:**
