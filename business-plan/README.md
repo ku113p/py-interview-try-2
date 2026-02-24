@@ -4,14 +4,21 @@
 
 **Goal:** Collect evidence that customers will pay, even if payment system is broken. Start with demonstrations and proofs, iterate based on real signals.
 
-**Strategy (updated 2026-02-24 after market research):**
-- **Primary:** Career professionals (CV generation - genuine whitespace, no competitor does conversational CV)
-- **Secondary:** MCP power users (AI memory - smaller market, real competitors exist: Mem0, Zep)
-- **Payment:** Credit cards via Polar.sh (primary) + crypto as privacy option. Crypto-only is unnecessary.
+**Core value:** Make any AI actually know you. Structured interviews extract deep knowledge; any AI connected via MCP can access it.
 
-See [MARKET-SEGMENTS.md](./MARKET-SEGMENTS.md) for full analysis.
+**Strategy (updated 2026-02-24 after market research):**
+- **Primary validation:** Career professionals (CV generation - genuine whitespace, most concrete demo)
+- **Secondary validation:** MCP power users (AI memory - smaller market, higher per-user value)
+- **Broader vision:** Anyone who wants AI that truly understands them (consulting, research, personal knowledge, teams)
+- **Payment:** Credit cards via Polar.sh (primary) + crypto as privacy option
+
+See [MARKETING-FOUNDATIONS.md](./MARKETING-FOUNDATIONS.md) for strategic foundations (value prop, use cases, pricing rationale, retention).
+See [MARKET-SEGMENTS.md](./MARKET-SEGMENTS.md) for segment analysis.
 See [COMPETITORS.md](./COMPETITORS.md) for competitive landscape and positioning.
 See [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md) for research findings and strategic corrections.
+See [FOCUS-GROUP-RESULTS.md](./FOCUS-GROUP-RESULTS.md) for simulated focus group results (42 personas across 7 segments).
+See [INVESTOR-FEEDBACK.md](./INVESTOR-FEEDBACK.md) for simulated investor feedback (10 investor archetypes).
+See [VALIDATION-PLAN.md](./VALIDATION-PLAN.md) for minimum viable demand validation plan (7-day action plan).
 
 ---
 
@@ -130,9 +137,13 @@ See [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md) for research findings and str
 ```
 business-plan/
 ├── README.md                 <- You are here (overview + navigation)
-├── MARKET-SEGMENTS.md        <- Dual segment analysis (CV primary)
+├── MARKETING-FOUNDATIONS.md  <- Strategic foundations (value prop, use cases, pricing, retention)
+├── MARKET-SEGMENTS.md        <- Segment analysis (CV primary, MCP secondary)
 ├── COMPETITORS.md            <- Competitive landscape & positioning
 ├── REVIEW-2026-02-24.md      <- Market research findings
+├── FOCUS-GROUP-RESULTS.md    <- Simulated focus group results (42 personas)
+├── INVESTOR-FEEDBACK.md      <- Simulated investor feedback (10 archetypes)
+├── VALIDATION-PLAN.md        <- Minimum viable demand validation (7-day plan)
 │
 ├── stage-1-validation/       <- CURRENT STAGE
 │   ├── PLAN.md               <- Strategy & success criteria

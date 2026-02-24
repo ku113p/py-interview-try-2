@@ -108,7 +108,7 @@ I could be wrong. What would make this a no-brainer for you?
 Thanks for the feedback on my post. Super helpful.
 
 Based on what you said, wondering if you'd be interested in early
-access at a lower price point ($15-20 range)? Since you clearly
+access at a lower price point ($12/mo range)? Since you clearly
 understand the space, your feedback would be really valuable.
 
 No pressure—just thought I'd ask since we were already talking.

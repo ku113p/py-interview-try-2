@@ -9,7 +9,7 @@
 ## Hypothesis to Test
 
 **Primary Hypothesis (Lower Risk):**
-"Professionals need better knowledge management and CV generation from conversational interviews, and will pay $15-40/month for it."
+"Professionals need better knowledge management and CV generation from conversational interviews, and will pay $12/month (or $79 lifetime) for it."
 
 **Secondary Hypothesis (Higher Risk, Higher Value):**
 "Technical users want to give ANY AI assistant (Claude, ChatGPT, Gemini, Cursor, etc.) long-term memory via MCP server."
@@ -20,7 +20,7 @@
 
 - ✅ 20+ waitlist signups (email + Telegram username)
 - ✅ 5+ direct messages asking "when can I pay?"
-- ✅ 3+ people saying "I'd pay $X/month" (where X ≥ $15)
+- ✅ 3+ people saying "I'd pay $X/month" (where X ≥ $12)
 
 **If you get this proof, Stage 1 is successful. Move to Stage 2.**
 
@@ -395,7 +395,7 @@ Demo: [link] if you want to check it out."
 
 - [ ] **20+ waitlist signups** (emails collected)
 - [ ] **5+ direct inquiries** about payment ("when can I pay?")
-- [ ] **3+ price confirmations** (people saying $15-40 is reasonable)
+- [ ] **3+ price confirmations** (people saying $12-29/mo or $79 lifetime is reasonable)
 - [ ] **Demo video** has 50+ views
 - [ ] **Landing page** gets 100+ visitors
 - [ ] **Clear winning segment** identified (who wants it most)

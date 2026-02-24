@@ -1,14 +1,18 @@
 # Market Segmentation Analysis
 
-## UPDATE (2026-02-24): CV Segment Is Primary
+## UPDATE (2026-02-25): Broader Vision, CV-First Validation
 
-Based on market research (see [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md)):
-- **"Conversational CV generation" is genuine whitespace** - zero competitors do this
+**Core value:** Make any AI actually know you. CV is the most concrete demo; MCP is the delivery mechanism. But the product serves anyone who wants AI that truly understands them.
+
+See [MARKETING-FOUNDATIONS.md](./MARKETING-FOUNDATIONS.md) for the full use case map (7 segments identified), value quantification, and strategic rationale.
+
+**Why CV first for validation** (from [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md)):
+- "Conversational CV generation" is genuine whitespace — zero competitors do this
 - The closest analog is a $200-700 human career coach
-- MCP memory space has real competitors (Mem0, Zep AI) - harder to differentiate
+- MCP memory space has real competitors (Mem0, Zep AI) — harder to differentiate
 - Job seekers are a much larger market ($1.5-2.5B)
 
-**Strategy update:** Lead with CV segment. MCP is the premium upsell.
+**Strategy:** Validate with CV segment first. MCP is the premium upsell. But don't build messaging that locks out broader use cases (consulting, research, personal knowledge, teams).
 
 ## Two Market Segments (CV Primary, MCP Secondary)
 
@@ -83,7 +87,7 @@ Based on market research (see [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md)):
 - AI Twitter
 
 ### Messaging
-"AI assistants forget everything after each chat. Interview Assistant is an MCP server that gives Claude, ChatGPT, Cursor, and any MCP-compatible AI long-term memory. 5-minute setup. Works today. $19-39/month."
+"AI assistants forget everything after each chat. Interview Assistant is an MCP server that gives Claude, ChatGPT, Cursor, and any MCP-compatible AI long-term memory. 5-minute setup. Works today. $29/month."
 
 ### Conversion Path
 1. See post about MCP memory solution
@@ -132,7 +136,7 @@ Based on market research (see [REVIEW-2026-02-24.md](./REVIEW-2026-02-24.md)):
 
 **If Both Convert Well:**
 - Keep dual positioning
-- Two tiers: "CV Pro" ($19) and "MCP + CV" ($39)
+- Two tiers: "CV Pro" ($12/mo or $79 lifetime) and "Knowledge Pro" ($29/mo)
 - Different marketing materials per audience
 
 ---
@@ -208,7 +212,7 @@ Self-Hosted: $59/mo
 **Minimum Viable Proof:**
 - 20+ signups TOTAL (from either or both segments)
 - 5+ direct payment inquiries
-- 3+ people saying "$15-40 is reasonable"
+- 3+ people saying "$12-29/mo or $79 lifetime is reasonable"
 
 **Ideal Proof:**
 - 30+ signups (15+ in one clear winning segment)
