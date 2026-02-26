@@ -1,5 +1,5 @@
 # Interview backend: Python 3.12 + uv + ffmpeg
-# Usage: docker build -f backend/Dockerfile -t interview-backend backend/
+# Build: docker build -f backend/Dockerfile -t interview-backend backend/
 
 FROM python:3.12-alpine
 
