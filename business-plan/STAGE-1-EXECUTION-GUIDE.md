@@ -13,7 +13,7 @@
 1. Go to https://formspree.io/
 2. Sign up with any email
 3. Click "New Form"
-4. Enter email: `REDACTED_EMAIL`
+4. Enter your email address
 5. Create the form
 6. Copy your **Form ID** from the URL or dashboard
    - Example: If the action URL is `https://formspree.io/f/abc123de`, your ID is `abc123de`
@@ -36,7 +36,7 @@
 
 4. Visit http://localhost:4321
 5. Fill out the email form and submit
-6. Check your email (REDACTED_EMAIL) to confirm it works
+6. Check your email to confirm it works
 
 ---
 
